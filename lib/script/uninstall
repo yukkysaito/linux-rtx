@@ -1,0 +1,6 @@
+#!/bin/sh
+incdir="/usr/include/resch"
+libdir="/usr/lib/resch"
+
+rm -rf $incdir
+rm -fr $libdir

@@ -1,0 +1,21 @@
+#!/bin/sh
+mode="644"
+incdir="/usr/include/resch"
+libdir="/usr/lib/resch"
+
+# header install. 
+if [ ! -d $incdir ]; then
+	mkdir $incdir
+fi
+cp -f ./api.h $incdir/api.h
+chmod $mode $incdir/api.h
+cp -f ./rtx.h $incdir/rtx.h
+chmod $mode $incdir/rtx.h
+
+# library install.
+if [ ! -d $libdir ]; then
+	mkdir $libdir
+fi
+cp -f ./libresch.a $libdir/libresch.a
+chmod $mode $libdir/libresch.a
+
