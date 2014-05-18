@@ -17,5 +17,10 @@ if [ ! -d $libdir ]; then
 	mkdir $libdir
 fi
 cp -f ./libresch.a $libdir/libresch.a
+cp -f ./libresch.so.1.0.0 $libdir/libresch.so.1.0.0
+echo $libdir > /etc/ld.so.conf.d/libresch-x86_64.conf
+ldconfig 
+ln -sf $libdir/libresch.so.1.0.0 $libdir/libresch.so
+chmod $mode $libdir/libresch.so.1.0.0
 chmod $mode $libdir/libresch.a
 
