@@ -1,5 +1,6 @@
 /*
- * sched_deadline.c		Copyright (C) Shinpei Kato
+ * sched_deadline.c		Copyright (C) Shinpei Kato, Yusuke Fujii
+ *
  *
  * EDF scheduler implementation for RESCH.
  * This implementation is used when SCHED_DEADLINE is enabled.
@@ -7,48 +8,122 @@
 
 #include <resch-core.h>
 #include "sched.h"
-
+#include <linux/pid.h>
+#include <linux/slab.h>
 #ifndef CONFIG_AIRS
 #define SCHED_FCBS 				0x20000000
 #define SCHED_FCBS_NO_CATCH_UP	0x10000000
 #define SCHED_EXHAUSTIVE 		0x08000000
 #endif
 
+/*   
+ *
+ */
+extern struct sched_attr;
+int sched_setattr(struct task_struct *p, const struct sched_attr *attr);
+
+static inline uint64_t timespec_to_ms(struct timespec *ts) {
+	return ((ts->tv_sec * 1000L) + (ts->tv_nsec / 1000L ));
+}
+
+
 /* prototypes for the kernel functions. */
+
+/*
 int sched_setscheduler_ex(struct task_struct *p, int policy,
 						  struct sched_param *param,
 						  struct sched_param_ex *param_ex);
+*/
 int sched_wait_interval(int flags,
 						const struct timespec __user * rqtp,
 						struct timespec __user * rmtp);
+
+#include <linux/hrtimer.h>
+int sched_wait_interval(int flags, const struct timespec __user * rqtp, struct timespec __user * rmtp){
+ 	struct hrtimer_sleeper t;
+	enum hrtimer_mode mode = flags & TIMER_ABSTIME ?
+	    HRTIMER_MODE_ABS : HRTIMER_MODE_REL;
+	int ret = 0;
+
+	hrtimer_init_on_stack(&t.timer, CLOCK_MONOTONIC, mode);
+	hrtimer_set_expires(&t.timer, timespec_to_ktime(*rqtp));
+	hrtimer_init_sleeper(&t, current);
+
+	do{
+	    set_current_state(TASK_INTERRUPTIBLE);
+	    hrtimer_start_expires(&t.timer, mode);
+	    if (!hrtimer_active(&t.timer))
+		t.task = NULL;
+
+	    if (likely(t.task)) {
+	//	t.task->dl.flags |= DL_NEW;
+		//if (t.task->sched_class->wait_interval)
+		//    t.task->sched_class->wait_interval(t.task);
+		schedule();
+	    }
+	    hrtimer_cancel(&t.timer);
+	    mode = HRTIMER_MODE_ABS;
+	} while (t.task && !signal_pending(current));
+	__set_current_state(TASK_RUNNING);
+
+	if (t.task == NULL)
+	    goto out;
+
+	if (mode == HRTIMER_MODE_ABS) {
+	    ret = -ERESTARTNOHAND;
+	    goto out;
+	}
+
+	if (rmtp) {
+	    ktime_t rmt;
+	    struct timespec rmt_ts;
+	    rmt = hrtimer_expires_remaining(&t.timer);
+	    if (rmt.tv64 > 0)
+		goto out;
+	    rmt_ts = ktime_to_timespec(rmt);
+	    if (!timespec_valid(&rmt_ts))
+		goto out;
+	    *rmtp = rmt_ts;
+	}
+out:
+	destroy_hrtimer_on_stack(&t.timer);
+	return ret;
+}
 
 /**
  * set the scheduler internally in the Linux kernel.
  */
 static int edf_set_scheduler(resch_task_t *rt, int prio)
 {
-	struct sched_param sp;
-	struct sched_param_ex spx;
 	struct timespec ts_period, ts_deadline, ts_runtime;
+
+	struct sched_attr sa;
 
 	jiffies_to_timespec(rt->period, &ts_period);
 	jiffies_to_timespec(rt->deadline, &ts_deadline);
 	jiffies_to_timespec(usecs_to_jiffies(rt->runtime), &ts_runtime);
-	sp.sched_priority = 0;
-	spx.sched_priority = 0;
-	spx.sched_period = ts_period;
-	spx.sched_deadline = ts_deadline;
-	spx.sched_runtime = ts_runtime;
-	spx.sched_flags = 0;
-	if (sched_setscheduler_ex(rt->task, SCHED_DEADLINE, &sp, &spx) < 0) {
+
+	memset(&sa, 0, sizeof(struct sched_attr));
+	sa.sched_policy = SCHED_DEADLINE;
+	sa.size = sizeof(struct sched_attr);
+	sa.sched_flags = 0;
+	sa.sched_runtime = timespec_to_ms(&ts_runtime);
+	sa.sched_deadline = timespec_to_ms(&ts_deadline);
+	sa.sched_period = timespec_to_ms(&ts_period);
+	printk("runtime:%d\n",timespec_to_ms(&ts_runtime));
+	printk("deadline:%d\n",timespec_to_ms(&ts_deadline));
+	printk("period:%d\n",timespec_to_ms(&ts_period));
+
+	rcu_read_lock();
+	if (rt->task == NULL || sched_setattr(rt->task, &sa) == -1) {
 		printk(KERN_WARNING "RESCH: edf_set_scheduler() failed.\n");
 		printk(KERN_WARNING "RESCH: task#%d (process#%d) priority=%d.\n",
 			   rt->rid, rt->task->pid, prio);
 		return false;
 	}
+	rcu_read_unlock();
 
 	rt->prio = prio;
-
 	if (task_has_reserve(rt)) {
 		rt->task->dl.flags &= ~SCHED_EXHAUSTIVE;
 		rt->task->dl.flags |= SCHED_FCBS;
@@ -151,11 +226,12 @@ static void edf_start_account(resch_task_t *rt)
 		rt->task->dl.runtime = timespec_to_ns(&ts);
 	}
 
+#if 0
 	/* set the flag to notify applications when the budget is exhausted. */
 	if (rt->xcpu) {
 		rt->task->dl.flags |= SCHED_SIG_RORUN;
 	}
-
+#endif
 	/* make sure to use Flexible CBS. */
 	rt->task->dl.flags &= ~SCHED_EXHAUSTIVE;
 	rt->task->dl.flags |= SCHED_FCBS;
@@ -168,11 +244,12 @@ static void edf_stop_account(resch_task_t *rt)
 {
 	rt->task->dl.flags |= SCHED_EXHAUSTIVE;
 	rt->task->dl.flags &= ~SCHED_FCBS;
-
+#if 0
 	if (rt->xcpu) {
 		rt->task->dl.flags &= ~SCHED_SIG_RORUN;
 		rt->task->dl.flags &= ~DL_RORUN;
 	}
+#endif
 }
 
 /**
