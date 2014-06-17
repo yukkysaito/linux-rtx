@@ -1169,7 +1169,7 @@ int api_wait_for_interval(int rid, unsigned long period)
 int api_set_period(int rid, unsigned long period)
 {
 	resch_task_t *rt = resch_task_ptr(rid);
-	rt->period = msecs_to_jiffies(period);
+	rt->period = period;
 	/* if the deadline has not yet been set, assign the period to it. */
 	if (rt->deadline == 0) {
 		rt->deadline = rt->period;
@@ -1183,7 +1183,7 @@ int api_set_period(int rid, unsigned long period)
 int api_set_deadline(int rid, unsigned long deadline)
 {
 	resch_task_t *rt = resch_task_ptr(rid);
-	rt->deadline = msecs_to_jiffies(deadline);
+	rt->deadline = deadline;
 	return RES_SUCCESS;
 }
 
