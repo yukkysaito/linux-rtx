@@ -8,7 +8,6 @@
 
 #include <resch-core.h>
 #include "sched.h"
-#include <linux/pid.h>
 #include <linux/slab.h>
 #ifndef CONFIG_AIRS
 #define SCHED_FCBS 				0x20000000
@@ -16,14 +15,21 @@
 #define SCHED_EXHAUSTIVE 		0x08000000
 #endif
 
+#ifndef DL_SCALE
+#define DL_SCALE (10)
+#endif
+
 /*   
  *
  */
-extern struct sched_attr;
 int sched_setattr(struct task_struct *p, const struct sched_attr *attr);
 
 static inline uint64_t timespec_to_ms(struct timespec *ts) {
-	return ((ts->tv_sec * 1000L) + (ts->tv_nsec / 1000L ));
+	return ((ts->tv_sec * 1000L) + (ts->tv_nsec / 1000000L ));
+}
+
+static inline uint64_t timespec_to_us(struct timespec *ts) {
+	return ((ts->tv_sec * 1000000L) + (ts->tv_nsec / 1000L ));
 }
 
 
@@ -95,34 +101,32 @@ out:
  */
 static int edf_set_scheduler(resch_task_t *rt, int prio)
 {
-	struct timespec ts_period, ts_deadline, ts_runtime;
-
+	uint64_t runtime, period, deadline;
 	struct sched_attr sa;
-
-	jiffies_to_timespec(rt->period, &ts_period);
-	jiffies_to_timespec(rt->deadline, &ts_deadline);
-	jiffies_to_timespec(usecs_to_jiffies(rt->runtime), &ts_runtime);
+	int retval;
 
 	memset(&sa, 0, sizeof(struct sched_attr));
+	
 	sa.sched_policy = SCHED_DEADLINE;
 	sa.size = sizeof(struct sched_attr);
 	sa.sched_flags = 0;
-	sa.sched_runtime = timespec_to_ms(&ts_runtime);
-	sa.sched_deadline = timespec_to_ms(&ts_deadline);
-	sa.sched_period = timespec_to_ms(&ts_period);
-	printk("runtime:%d\n",timespec_to_ms(&ts_runtime));
-	printk("deadline:%d\n",timespec_to_ms(&ts_deadline));
-	printk("period:%d\n",timespec_to_ms(&ts_period));
+	sa.sched_deadline =  jiffies_to_usecs(rt->deadline);
+	sa.sched_period = jiffies_to_usecs(rt->period);
+	sa.sched_runtime = rt->runtime;
+
+	if (sa.sched_runtime < 2 <<(DL_SCALE -1)) {
+	    	printk(KERN_WARNING "RESCH: please check runtime. You have to set the runtime bigger than %d \n", 2<<(DL_SCALE -1));
+	}
 
 	rcu_read_lock();
-	if (rt->task == NULL || sched_setattr(rt->task, &sa) == -1) {
+	if (rt->task == NULL || (retval = sched_setattr(rt->task, &sa)<0)) {
 		printk(KERN_WARNING "RESCH: edf_set_scheduler() failed.\n");
 		printk(KERN_WARNING "RESCH: task#%d (process#%d) priority=%d.\n",
 			   rt->rid, rt->task->pid, prio);
 		return false;
 	}
 	rcu_read_unlock();
-
+	
 	rt->prio = prio;
 	if (task_has_reserve(rt)) {
 		rt->task->dl.flags &= ~SCHED_EXHAUSTIVE;
