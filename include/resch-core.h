@@ -37,6 +37,11 @@
 /* true iff @rt is assigned to the given CPU. */
 #define task_is_on_cpu(rt, cpu)	((rt)->cpu_id == cpu)
 
+/* for debug */
+#ifdef DEBUG_PRINT
+#define RESCH_DPRINT(fmt,arg...) printk(KERN_INFO "[RESCH]:" fmt, ##arg)
+#endif
+
 typedef struct resch_task_struct resch_task_t;
 typedef struct server_struct server_t;
 

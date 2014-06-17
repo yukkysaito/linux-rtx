@@ -284,10 +284,8 @@ static int __set_scheduler(resch_task_t *rt, int prio)
 	}
 
  out:
-#ifdef DEBUG_PRINT
-	printk(KERN_INFO "RESCH: task#%d changed policy to %d\n", 
+	RESCH_DPRINT("task#%d changed policy to %d\n", 
 		   rt->rid, rt->task->policy);
-#endif
 	return true;
 }
 
@@ -423,10 +421,8 @@ static void job_start(resch_task_t *rt)
 		start_account(rt);
 	}
 
-#ifdef DEBUG_PRINT
-	printk("RESCH: task#%d started on CPU%d at %lu (deadline=%lu).\n", 
+	RESCH_DPRINT("task#%d started on CPU%d at %lu (deadline=%lu).\n", 
 		   rt->rid, smp_processor_id(), jiffies, rt->deadline_time);
-#endif
 }
 
 /**
@@ -434,11 +430,9 @@ static void job_start(resch_task_t *rt)
  */
 static void job_complete(resch_task_t *rt)
 {
-#ifdef DEBUG_PRINT
-	printk("RESCH: task#%d completed on CPU%d at %lu\n", 
+	RESCH_DPRINT("task#%d completed on CPU%d at %lu\n", 
 		   rt->rid, smp_processor_id(), jiffies);
-	printk("RESCH: task#%d spent %lu (jiffies).\n", rt->rid, exec_time(rt));
-#endif
+	RESCH_DPRINT("task#%d spent %lu (jiffies).\n", rt->rid, exec_time(rt));
 
 #ifdef RESCH_PREEMPT_TRACE
 	preempt_self(rt);
@@ -473,12 +467,10 @@ static void job_complete(resch_task_t *rt)
 static inline int deadline_miss(resch_task_t *rt)
 {
 	if (rt->deadline > 0 && rt->deadline_time < jiffies) {
-#ifdef DEBUG_PRINT
-		printk(KERN_WARNING "RESCH: task#%d missed a deadline on CPU#%d.\n", 
+		RESCH_DPRINT("task#%d missed a deadline on CPU#%d.\n", 
 			   rt->rid, smp_processor_id());
-		printk(KERN_WARNING "RESCH: deadline = %lu, jiffies = %lu.\n", 
+		RESCH_DPRINT("deadline = %lu, jiffies = %lu.\n", 
 			   rt->deadline_time, jiffies);
-#endif
 		rt->missed = true;
 	}
 	else {
@@ -638,8 +630,7 @@ resch_task_t* active_highest_prio_task(int cpu)
 	}
 #ifdef DEBUG_PRINT
 	if (list_empty(&active->queue[idx])) {
-		printk(KERN_WARNING 
-			   "RESCH: active queue may be broken on CPU#%d.\n", cpu);
+		RESCH_DPRINT("active queue may be broken on CPU#%d.\n", cpu);
 		return NULL;
 	}
 #endif
@@ -747,11 +738,8 @@ resch_task_t* active_number_task(int cpu, int num)
 		   this also prevents an infinite loop. */
 		idx++;
 	}
-#ifdef DEBUG_PRINT
 	/* should not reach here... */
-	printk(KERN_WARNING
-		   "RESCH: active queue may be broken on CPU#%d .\n", cpu);
-#endif
+	RESCH_DPRINT("active queue may be broken on CPU#%d .\n", cpu);
 	return NULL;
 }
 EXPORT_SYMBOL(active_number_task);
@@ -1084,9 +1072,7 @@ int api_exit(int rid)
 	int res = RES_SUCCESS;
 	resch_task_t *rt = resch_task_ptr(rid);
 
-#ifdef DEBUG_PRINT
-	printk("RESCH: task#%d is exiting...\n", rid);
-#endif
+	RESCH_DPRINT("task#%d is exiting...\n", rid);
 
 	/* make sure to complete the job. */
 	if (task_is_active(rt)) {
