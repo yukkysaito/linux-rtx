@@ -8,21 +8,13 @@
 
 #include <resch-core.h>
 #include "sched.h"
+#include "sched_deadline.h"
 #include <linux/slab.h>
 #ifndef CONFIG_AIRS
-#define SCHED_FCBS 				0x20000000
+#define SCHED_FCBS 		0x20000000
 #define SCHED_FCBS_NO_CATCH_UP	0x10000000
-#define SCHED_EXHAUSTIVE 		0x08000000
+#define SCHED_EXHAUSTIVE 	0x08000000
 #endif
-
-#ifndef DL_SCALE
-#define DL_SCALE (10)
-#endif
-
-/*   
- *
- */
-int sched_setattr(struct task_struct *p, const struct sched_attr *attr);
 
 static inline uint64_t timespec_to_ms(struct timespec *ts) {
 	return ((ts->tv_sec * 1000L) + (ts->tv_nsec / 1000000L ));
@@ -33,18 +25,6 @@ static inline uint64_t timespec_to_us(struct timespec *ts) {
 }
 
 
-/* prototypes for the kernel functions. */
-
-/*
-int sched_setscheduler_ex(struct task_struct *p, int policy,
-						  struct sched_param *param,
-						  struct sched_param_ex *param_ex);
-*/
-int sched_wait_interval(int flags,
-						const struct timespec __user * rqtp,
-						struct timespec __user * rmtp);
-
-#include <linux/hrtimer.h>
 int sched_wait_interval(int flags, const struct timespec __user * rqtp, struct timespec __user * rmtp){
  	struct hrtimer_sleeper t;
 	enum hrtimer_mode mode = flags & TIMER_ABSTIME ?
@@ -62,9 +42,7 @@ int sched_wait_interval(int flags, const struct timespec __user * rqtp, struct t
 		t.task = NULL;
 
 	    if (likely(t.task)) {
-	//	t.task->dl.flags |= DL_NEW;
-		//if (t.task->sched_class->wait_interval)
-		//    t.task->sched_class->wait_interval(t.task);
+		t.task->dl.flags |= DL_NEW;
 		schedule();
 	    }
 	    hrtimer_cancel(&t.timer);
@@ -104,15 +82,24 @@ static int edf_set_scheduler(resch_task_t *rt, int prio)
 	uint64_t runtime, period, deadline;
 	struct sched_attr sa;
 	int retval;
+	
+	struct sched_dl_entity *dl_se = &rt->task->dl;
+	struct task_struct *task = container_of(dl_se, struct task_struct, dl);
+	struct dl_rq *dl_rq = dl_rq_of_se(dl_se);
+	struct rq *rq = get_rq_of_task(task);
+
+	rt->dl_runtime = &dl_se->runtime;
+	rt->dl_deadline = &dl_se->deadline;
+	rt->rq_clock = &rq->clock;
 
 	memset(&sa, 0, sizeof(struct sched_attr));
 	
 	sa.sched_policy = SCHED_DEADLINE;
 	sa.size = sizeof(struct sched_attr);
 	sa.sched_flags = 0;
-	sa.sched_deadline =  jiffies_to_usecs(rt->deadline);
-	sa.sched_period = jiffies_to_usecs(rt->period);
-	sa.sched_runtime = rt->runtime;
+	sa.sched_deadline =  jiffies_to_nsecs(rt->deadline);
+	sa.sched_period = jiffies_to_nsecs(rt->period);
+	sa.sched_runtime = rt->runtime*1000;
 
 	if (sa.sched_runtime < 2 <<(DL_SCALE -1)) {
 	    	printk(KERN_WARNING "RESCH: please check runtime. You have to set the runtime bigger than %d \n", 2<<(DL_SCALE -1));
@@ -346,7 +333,7 @@ static const struct resch_sched_class edf_sched_class = {
 	.set_scheduler		= edf_set_scheduler,
 	.enqueue_task		= edf_enqueue_task,
 	.dequeue_task		= edf_dequeue_task,
-	.job_start			= edf_job_start,
+	.job_start		= edf_job_start,
 	.job_complete		= edf_job_complete,
 	.start_account		= edf_start_account,
 	.stop_account		= edf_stop_account,

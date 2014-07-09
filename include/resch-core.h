@@ -40,6 +40,8 @@
 /* for debug */
 #ifdef DEBUG_PRINT
 #define RESCH_DPRINT(fmt,arg...) printk(KERN_INFO "[RESCH]:" fmt, ##arg)
+#else
+#define RESCH_DPRINT(fmt,arg...)
 #endif
 
 typedef struct resch_task_struct resch_task_t;
@@ -143,6 +145,12 @@ struct resch_task_struct {
 #ifdef RESCH_HRTIMER
 	int static_prio_save;
 #endif
+	/* for sched_deadline */
+	unsigned long long *dl_runtime; /* by ns. remaining runtime for this instance. */
+	unsigned long long *dl_period; /* by ns.  */
+	unsigned long long *dl_deadline; /*by ns. absolute deadline for this instance  */
+	unsigned long long *rq_clock; /* by ns. runqueue current clock.  */
+	unsigned long long *dl_bw;
 };
 
 #ifdef RESCH_PREEMPT_TRACE
