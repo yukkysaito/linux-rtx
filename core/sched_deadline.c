@@ -91,6 +91,7 @@ static int edf_set_scheduler(resch_task_t *rt, int prio)
 	rt->dl_runtime = &dl_se->runtime;
 	rt->dl_deadline = &dl_se->deadline;
 	rt->rq_clock = &rq->clock;
+	rt->dl_sched_release_time = 0;
 
 	memset(&sa, 0, sizeof(struct sched_attr));
 	
@@ -101,6 +102,13 @@ static int edf_set_scheduler(resch_task_t *rt, int prio)
 	sa.sched_period = jiffies_to_nsecs(rt->period);
 	sa.sched_runtime = rt->runtime*1000;
 
+	RESCH_DPRINT("@@@@sched_deadline status@@@@");
+	RESCH_DPRINT("policy   = %16lu\n", sa.sched_policy);
+	RESCH_DPRINT("deadline = %16lu\n", sa.sched_deadline);
+	RESCH_DPRINT("period   = %16lu\n", sa.sched_period);
+	RESCH_DPRINT("runtime  = %16lu\n", sa.sched_runtime);
+	RESCH_DPRINT("now_time = %16lu jiffies\n",jiffies);
+	RESCH_DPRINT("@@@@@@@@@@@@\n");
 	if (sa.sched_runtime < 2 <<(DL_SCALE -1)) {
 	    	printk(KERN_WARNING "RESCH: please check runtime. You have to set the runtime bigger than %d \n", 2<<(DL_SCALE -1));
 	}
@@ -326,6 +334,7 @@ static void edf_wait_period(resch_task_t *rt)
 		rt->task->dl.deadline = cpu_clock(smp_processor_id());
 	}
 	sched_wait_interval(!TIMER_ABSTIME, &ts_period, NULL);
+	rt->dl_sched_release_time = cpu_clock(smp_processor_id());
 }
 
 /* EDF scheduling class. */

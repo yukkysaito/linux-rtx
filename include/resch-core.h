@@ -151,16 +151,17 @@ struct resch_task_struct {
 	unsigned long long *dl_deadline; /*by ns. absolute deadline for this instance  */
 	unsigned long long *rq_clock; /* by ns. runqueue current clock.  */
 	unsigned long long *dl_bw;
+	unsigned long long dl_sched_release_time;
 };
 
 #ifdef RESCH_PREEMPT_TRACE
 static inline unsigned long exec_time(resch_task_t *rt)
 {
-	return rt->exec_time;
+	return rt->exec_time; /* jiffies */
 }
 static inline unsigned long exec_delta(resch_task_t *rt)
 {
-	return rt->exec_delta;
+	return rt->exec_delta; /* jiffies */
 }
 static inline void reset_exec_time(resch_task_t *rt)
 {
@@ -170,16 +171,16 @@ static inline void reset_exec_time(resch_task_t *rt)
 #else /* !RESCH_PREEMPT_TRACE */
 static inline unsigned long exec_time(resch_task_t *rt)
 {
-	return rt->task->utime + rt->task->stime;
+	return usecs_to_jiffies((rt->task->utime + rt->task->stime)/1000);
 }
 static inline unsigned long exec_delta(resch_task_t *rt)
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,8,0)
-	return (rt->task->utime + rt->task->stime) - 
-		(rt->task->prev_cputime.utime + rt->task->prev_cputime.stime);
+	return usecs_to_jiffies(((rt->task->utime + rt->task->stime) - 
+		(rt->task->prev_cputime.utime + rt->task->prev_cputime.stime))/1000);
 #else
-	return (rt->task->utime + rt->task->stime) - 
-		(rt->task->prev_utime + rt->task->prev_stime);
+	return usecs_to_jiffies(((rt->task->utime + rt->task->stime) - 
+		(rt->task->prev_utime + rt->task->prev_stime))/1000);
 #endif
 }
 static inline void reset_exec_time(resch_task_t *rt)
