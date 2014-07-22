@@ -395,12 +395,17 @@ static void job_release(resch_task_t *rt, unsigned long release_time)
 	reset_exec_time(rt);
 	rt->deadline_time = rt->release_time + rt->deadline;
 	
-	while(rt->deadline_time - rt->deadline < jiffies){
-	    RESCH_DPRINT("deadline is earlier than current time\n");
-	    rt->deadline_time+= rt->period;
-	    rt->release_time = jiffies;
-	    rt->dl_sched_release_time = cpu_clock(smp_processor_id());
+#ifdef SCHED_DEADLINE
+	if ( rt->policy == RESCH_SCHED_EDF ){
+	    while(rt->deadline_time - rt->deadline < jiffies){
+		rt->deadline_time+= rt->period;
+		rt->release_time = jiffies;
+		rt->dl_sched_release_time = cpu_clock(smp_processor_id());
+		RESCH_DPRINT("Deadline is earlier than current time. New deadline is %lu (jiffies)\n",rt->deadline_time);
+	    }
 	}
+#endif
+	
 }
 
 /**
