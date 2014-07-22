@@ -92,13 +92,13 @@ int cuda_test_madd(unsigned int n, char *path)
 		return -1;
 	}
 
-	sprintf(fname, "%s/madd_gpu.cubin", path);
+	sprintf(fname, "%s/loop_gpu.cubin", path);
 	res = cuModuleLoad(&module, fname);
 	if (res != CUDA_SUCCESS) {
 		printf("cuModuleLoad() failed\n");
 		return -1;
 	}
-	res = cuModuleGetFunction(&function, module, "_Z3addPjS_S_j");
+	res = cuModuleGetFunction(&function, module, "_Z4loopPjS_S_j");
 	if (res != CUDA_SUCCESS) {
 		printf("cuModuleGetFunction() failed\n");
 		return -1;
