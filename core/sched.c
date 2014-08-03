@@ -397,7 +397,7 @@ static void job_release(resch_task_t *rt, unsigned long release_time)
 	
 #ifdef SCHED_DEADLINE
 	if ( rt->policy == RESCH_SCHED_EDF ){
-	    while(rt->deadline_time - rt->deadline < jiffies){
+	    while(rt->runtime <=0){
 		rt->deadline_time+= rt->period;
 		rt->release_time = jiffies;
 		rt->dl_sched_release_time = cpu_clock(smp_processor_id());
