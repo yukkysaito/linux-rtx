@@ -14,6 +14,7 @@
 #include <resch-api.h>
 #include <resch-config.h>
 #include <resch-core.h>
+#include <resch-gpu-core.h>
 #include "component.h"
 #include "event.h"
 #include "main.h"
@@ -195,48 +196,55 @@ static int resch_ioctl(struct inode *inode,
 #endif
 {
 	unsigned long val;
-	
-	/* copy data to kernel buffer. */
-	if (copy_from_user(&val, (long *)arg, sizeof(long))) {
-		printk(KERN_WARNING "RESCH: failed to copy data.\n");
-		return -EFAULT;
-	}
+	switch(cmd){	
+	    case GDEV_IOCTL_CTX_CREATE:
+		return gsched_ctxcreate(arg);
+	    case GDEV_IOCTL_LAUNCH:
+		return gsched_launch(arg);
+	    case GDEV_IOCTL_SYNC:
+		return gsched_sync(arg);
+	    default:
 
-	switch (cmd) {
-	case TEST_SET_SWITCH_COST:
-		switch_cost= val;
-		printk(KERN_INFO "RESCH: switch cost = %lu us\n", switch_cost);
-		break;
-	
-	case TEST_SET_RELEASE_COST:
-		release_cost= val;
-		printk(KERN_INFO "RESCH: release cost = %lu us\n", release_cost);
-		break;
-	
-	case TEST_SET_MIGRATION_COST:
-		migration_cost = val;
-		printk(KERN_INFO "RESCH: migration cost = %lu us\n", migration_cost);
-		break;
+		/* copy data to kernel buffer. */
+		if (copy_from_user(&val, (long *)arg, sizeof(long))) {
+		    printk(KERN_WARNING "RESCH: failed to copy data.\n");
+		    return -EFAULT;
+		}
 
-	case TEST_GET_RELEASE_COST:
-		return test_get_release_cost(val);
+		switch (cmd) {
+		    case TEST_SET_SWITCH_COST:
+			switch_cost= val;
+			printk(KERN_INFO "RESCH: switch cost = %lu us\n", switch_cost);
+			break;
 
-	case TEST_GET_MIGRATION_COST:
-		return test_get_migration_cost(val);
+		    case TEST_SET_RELEASE_COST:
+			release_cost= val;
+			printk(KERN_INFO "RESCH: release cost = %lu us\n", release_cost);
+			break;
 
-	case TEST_GET_RUNTIME:
-		return test_get_runtime();
+		    case TEST_SET_MIGRATION_COST:
+			migration_cost = val;
+			printk(KERN_INFO "RESCH: migration cost = %lu us\n", migration_cost);
+			break;
 
-	case TEST_GET_UTIME:
-		return test_get_utime();
+		    case TEST_GET_RELEASE_COST:
+			return test_get_release_cost(val);
 
-	case TEST_GET_STIME:
-		return test_get_stime();
+		    case TEST_GET_MIGRATION_COST:
+			return test_get_migration_cost(val);
 
-	default:
-		printk(KERN_WARNING "RESCH: illegal test command.\n");
-		return RES_FAULT;
-	}
+		    case TEST_GET_RUNTIME:
+			return test_get_runtime();
+
+		    case TEST_GET_UTIME:
+			return test_get_utime();
+
+		    case TEST_GET_STIME:
+			return test_get_stime();
+		    default:
+			printk(KERN_WARNING "RESCH: illegal test command.\n");
+			return RES_FAULT;
+		}}
 
 	return RES_SUCCESS;
 }
@@ -276,6 +284,8 @@ static int __init resch_init(void)
 		printk(KERN_WARNING "RESCH: failed to register device.\n");
 		return ret;
 	}
+	
+	gsched_init();
 
 	sched_init();
 	component_init();
@@ -287,9 +297,11 @@ static void __exit resch_exit(void)
 {
 	printk(KERN_INFO "RESCH: GOODBYE!\n");
 
+	gsched_exit();
+
 	sched_exit();
 	component_exit();
-
+	
 	/* delete the char device. */
 	cdev_del(&c_dev);
 	/* return back the device number. */

@@ -65,6 +65,8 @@
 #define TEST_GET_UTIME			107
 #define TEST_GET_STIME			108
 
+/* ioctl command numbers  */
+
 /* result values. they should be non-negative! */
 #define RES_SUCCESS	0	/* sane result. */
 #define RES_FAULT	1	/* insane result. */
