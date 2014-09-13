@@ -4,13 +4,23 @@
 #include <linux/types.h>
 #include <resch-gpu-lock.h>
 #include <linux/wait.h>
+#include "gdev_list.h"
 
 #define MAX 25
 
 #define SCHED_YILED() yield()
 
 #define RESCH_G_PRINT(fmt,arg...) printk(KERN_INFO "[RESCH-G]:" fmt, ##arg)
-#define GDEV_DEVICE_MAX_COUNT 2
+
+#define RESCH_GPU_DEBUG_PRINT
+
+#ifdef RESCH_GPU_DEBUG_PRINT
+#define RESCH_G_DPRINT(fmt,arg...) printk(KERN_INFO "[RESCH-G]:" fmt, ##arg)
+#else
+#define RESCH_G_DPRINT(fmt,arg...)
+#endif
+
+#define GDEV_DEVICE_MAX_COUNT 4
 #define GDEV_CONTEXT_MAX_COUNT 32
 
 /**
@@ -44,84 +54,6 @@
 #define GDEV_IOCTL_LAUNCH 202
 #define GDEV_IOCTL_SYNC 203
 #define GDEV_IOCTL_CLOSE 204
-
-/* list function  */
-
-struct gdev_list {
-    struct gdev_list *next;
-    struct gdev_list *prev;
-    void *container;
-};
-
-static inline void gdev_list_init(struct gdev_list *entry, void *container)
-{
-    entry->next = entry->prev = entry; /* used to be "= NULL" */
-    entry->container = container;
-}
-
-static inline void gdev_list_add_next(struct gdev_list *entry, struct gdev_list *pos)
-{
-    struct gdev_list *next = pos->next;
-
-    entry->next = next;
-    next->prev = entry;
-    entry->prev = pos;
-    pos->next = entry;
-}
-
-static inline void gdev_list_add_prev(struct gdev_list *entry, struct gdev_list *pos)
-{
-    struct gdev_list *prev = pos->prev;
-
-    entry->prev = prev;
-    prev->next = entry;
-    entry->next = pos;
-    pos->prev = entry;
-}
-
-static inline void gdev_list_add(struct gdev_list *entry, struct gdev_list *head)
-{
-    return gdev_list_add_next(entry, head);
-}
-
-static inline void gdev_list_add_tail(struct gdev_list *entry, struct gdev_list *head)
-{
-    return gdev_list_add_prev(entry, head);
-}
-
-static inline void gdev_list_del(struct gdev_list *entry)
-{
-    struct gdev_list *next = entry->next;
-    struct gdev_list *prev = entry->prev;
-
-    /* if prev is null, @entry points to the head, hence something wrong. */
-    prev->next = next;
-    next->prev = prev;
-    entry->next = entry->prev = entry;
-}
-
-static inline int gdev_list_empty(struct gdev_list *entry)
-{
-    return (entry->next == entry->prev) && (entry->next == entry);
-}
-
-static inline struct gdev_list *gdev_list_head(struct gdev_list *head)
-{
-    /* head->next is the actual head of the list. */
-    return (head && !gdev_list_empty(head)) ? head->next : NULL;
-}
-
-static inline void *gdev_list_container(struct gdev_list *entry)
-{
-    return entry ? entry->container : NULL;
-}
-
-#define gdev_list_for_each(p, list, entry_name)				\
-    for (p = gdev_list_container(gdev_list_head(list));		\
-	    p != NULL;											\
-	    p = gdev_list_container((p)->entry_name.next))
-
-
 
 //time function
 //
@@ -507,7 +439,7 @@ struct gdev_handle {
 	uint32_t chunk_size; /* configurable memcpy chunk size. */
 	int pipeline_count; /* configurable memcpy pipeline count. */
 	int dev_id; /* device ID. */
-	int fd_resch;
+	int fd_resch; /*hack*/
 };
 
 
@@ -520,15 +452,17 @@ struct gdev_vsched_policy {
     void (*replenish_memory)(struct gdev_device *gdev);
 };
 
+/*   */
+void gsched_init(void);
+void gsched_exit(void);
+
+/* GDEV FUNCTION  */
 void gdev_schedule_compute(struct gdev_sched_entity *se);
 void gdev_select_next_compute(struct gdev_device *gdev);
 void gdev_schedule_memory(struct gdev_sched_entity *se);
 void gdev_select_next_memory(struct gdev_device *gdev);
 void gdev_replenish_credit_compute(struct gdev_device *gdev);
 void gdev_replenish_credit_memory(struct gdev_device *gdev);
-
-void gsched_init(void);
-void gsched_exit(void);
 void* gdev_current_com_get(struct gdev_device *gdev);
 void gdev_current_com_set(struct gdev_device *gdev, void *com);
 void gdev_lock_init(gdev_lock_t *__p);
@@ -543,12 +477,15 @@ void gdev_mutex_lock(struct gdev_mutex *__p);
 void gdev_mutex_unlock(struct gdev_mutex *__p);
 struct gdev_device* gdev_phys_get(struct gdev_device *gdev);
 
+
+/* RESCH_IOCTL_FUNCTION  */
 extern int gsched_ctxcreate(unsigned long __arg);
 extern int gsched_launch(unsigned long __arg);
 extern int gsched_sync(unsigned long __arg);
+extern int gsched_close(unsigned long __arg);
 
 
-extern struct gdev_device phys[GDEV_DEVICE_MAX_COUNT];
+extern struct gdev_device phys_ds[GDEV_DEVICE_MAX_COUNT];
 extern struct gdev_device gdev_vds[GDEV_DEVICE_MAX_COUNT];
 extern struct gdev_sched_entity *sched_entity_ptr[GDEV_CONTEXT_MAX_COUNT];
 extern int gdev_vcount;

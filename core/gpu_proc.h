@@ -2,7 +2,6 @@
 #define __GPU_PROC_H__
 
 #include <linux/proc_fs.h>
-#define GDEV_DEVICE_MAX_COUNT 2
 
 #define GDEV_PROC_MAX_BUF 64
 

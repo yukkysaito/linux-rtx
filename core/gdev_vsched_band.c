@@ -78,7 +78,7 @@ resched:
 
 		/* now the corresponding task will be suspended until some other tasks
 		   will awaken it upon completions of their compute launches. */
-		gdev_sched_sleep();
+		gdev_sched_sleep(se);
 
 		goto resched;
 	}
@@ -204,7 +204,7 @@ resched:
 
 		/* now the corresponding task will be suspended until some other tasks
 		   will awaken it upon completions of their memory transfers. */
-		gdev_sched_sleep();
+		gdev_sched_sleep(se);
 
 		goto resched;
 	}

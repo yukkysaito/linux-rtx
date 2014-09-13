@@ -18,10 +18,13 @@ resched:
 		/* enqueue the scheduling entity to the compute queue. */
 		__gdev_enqueue_compute(gdev, se);
 		gdev_unlock(&gdev->sched_com_lock);
-		printk("current_com=0x%lx, se =0x%lx\n",gdev_current_com_get(gdev),se);
 		/* now the corresponding task will be suspended until some other tasks
 		   will awaken it upon completions of their compute launches. */
-		gdev_sched_sleep();
+		
+		se->task = current; 
+		printk("[ctx#%d]goto sleep! sleep task is 0x%lx\n", se->ctx->cid, se->task);
+		gdev_sched_sleep(se);
+		printk("[ctx#%d]out of sleep!\n",se->ctx->cid);
 
 		goto resched;
 	}
@@ -35,7 +38,7 @@ resched:
 		gdev_current_com_set(gdev, (void*)se);
 		gdev_unlock(&gdev->sched_com_lock);
 	}
-RESCH_G_PRINT("Go to Launch ctx#%d \n",se->ctx->cid);
+	RESCH_G_PRINT("Go to Launch ctx#%d \n",se->ctx->cid);
 	/* this function call will block any new contexts to be created during
 	   the busy period on the GPU. */
 //	gdev_access_start(gdev);
@@ -66,7 +69,6 @@ void gdev_select_next_compute(struct gdev_device *gdev)
 	gdev_time_stamp(&now);
 	/* aquire the execution time. */
 	gdev_time_sub(&exec, &now, &se->last_tick_com);
-
 	se->launch_instances--;
 	if (se->launch_instances == 0) {
 		/* account for the credit. */
@@ -77,6 +79,7 @@ void gdev_select_next_compute(struct gdev_device *gdev)
 		/* select the next context to be scheduled.
 		   now don't reference the previous entity by se. */
 		se = gdev_list_container(gdev_list_head(&gdev->sched_com_list));
+		
 		/* setting the next entity here prevents lower-priority contexts 
 		   arriving in gdev_schedule_compute() from being dispatched onto
 		   the device. note that se = NULL could happen. */
@@ -99,19 +102,20 @@ void gdev_select_next_compute(struct gdev_device *gdev)
 		/* now remove the scheduling entity from the waiting list, and wake 
 		   up the corresponding task. */
 		if (se) {
-			__gdev_dequeue_compute(se);
-			gdev_unlock(&next->sched_com_lock);
+		    __gdev_dequeue_compute(se);
+		    gdev_unlock(&next->sched_com_lock);
 
-			if (gdev_sched_wakeup(se->task) < 0) {
-				RESCH_G_PRINT("Failed to wake up context %d\n", se);
-				RESCH_G_PRINT("Perhaps context %d is already up\n", se);
-			}
+		    if (gdev_sched_wakeup(se) < 0) {
+			RESCH_G_PRINT("Failed to wake up context 0x%lx\n", se->ctx->cid);
+			RESCH_G_PRINT("Perhaps context %d is already up\n", se->ctx->cid);
+		    }
+
 		}
 		else
 			gdev_unlock(&next->sched_com_lock);
 	}
 	else
-		gdev_unlock(&gdev->sched_com_lock);
+	    gdev_unlock(&gdev->sched_com_lock);
 }
 
 /**
