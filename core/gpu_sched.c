@@ -1,5 +1,52 @@
 #include <resch-gpu-core.h>
 
+#define SCHED_YIELD() yield()
+
+/* increment the counter for # of contexts accessing the device. */
+void gdev_access_start(struct gdev_device *gdev)
+{
+	struct gdev_device *phys = gdev_phys_get(gdev);
+	
+retry:
+	if (phys) {
+		gdev_lock(&phys->global_lock);
+		if (phys->blocked) {
+			gdev_unlock(&phys->global_lock);
+			SCHED_YIELD();
+			goto retry;
+		}
+		phys->accessed++;
+		gdev_unlock(&phys->global_lock);
+	}
+	else {
+		gdev_lock(&gdev->global_lock);
+		if (gdev->blocked) {
+			gdev_unlock(&gdev->global_lock);
+			SCHED_YIELD();
+			goto retry;
+		}
+		gdev->accessed++;
+		gdev_unlock(&gdev->global_lock);
+	}
+}
+
+/* decrement the counter for # of contexts accessing the device. */
+void gdev_access_end(struct gdev_device *gdev)
+{
+	struct gdev_device *phys = gdev_phys_get(gdev);
+
+	if (phys) {
+		gdev_lock(&phys->global_lock);
+		phys->accessed--;
+		gdev_unlock(&phys->global_lock);
+	}
+	else {
+		gdev_lock(&gdev->global_lock);
+		gdev->accessed--;
+		gdev_unlock(&gdev->global_lock);
+	}
+}
+
 
 /**
  * schedule compute calls.
@@ -41,7 +88,7 @@ resched:
 	RESCH_G_PRINT("Go to Launch ctx#%d \n",se->ctx->cid);
 	/* this function call will block any new contexts to be created during
 	   the busy period on the GPU. */
-//	gdev_access_start(gdev);
+	gdev_access_start(gdev);
 }
 
 /**
@@ -55,7 +102,7 @@ void gdev_select_next_compute(struct gdev_device *gdev)
 	struct gdev_time now, exec;
 
 	/* now new contexts are allowed to be created as the GPU is idling. */
-//	gdev_access_end(gdev);
+	gdev_access_end(gdev);
 
 	gdev_lock(&gdev->sched_com_lock);
 	se = (struct gdev_sched_entity *)gdev_current_com_get(gdev);

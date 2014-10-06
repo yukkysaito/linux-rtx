@@ -1,0 +1,35 @@
+TARGET = libresch
+TARGET_GPU = libresch_gpu
+
+OBJS = libresch.lo
+OBJS_GPU = libresch_gpu.lo
+
+INCDIRS = ../include
+LIBDIRS = /usr/local/lib/
+
+LIBTOOL = libtool
+
+CC = gcc
+CFLAGS = 
+
+.PHONY: all
+all: $(OBJS) $(OBJS_GPU)
+	$(LIBTOOL) --mode=link $(CC) $(OBJS) -o $(TARGET).la -rpath $(LIBDIRS)
+	$(LIBTOOL) --mode=link $(CC) $(OBJS_GPU) -o $(TARGET_GPU).la -rpath $(LIBDIRS)
+
+%.lo:%.c
+	$(LIBTOOL) --mode=compile $(CC) $(CFLAGS) -I$(INCDIRS) -c $^
+
+
+.PHONY: install
+install:
+	$(LIBTOOL) --mode=install cp $(TARGET).la $(LIBDIRS)
+	$(LIBTOOL) --mode=install cp $(TARGET_GPU).la $(LIBDIRS)
+
+.PHONY: uninstall
+uninstall:
+	$(LIBTOOL) --mode=uninstall rm -f $(LIBDIRS)/$(TARGET).la $(TARGET_GPU).la
+
+.PHONY: clean
+clean:
+	$(LIBTOOL) --mode=clean rm  $(TARGET).lo  $(TARGET_GPU).lo

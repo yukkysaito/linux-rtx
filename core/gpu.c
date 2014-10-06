@@ -35,7 +35,6 @@ static struct nouveau_channel {
 
 int gsched_ctxcreate(unsigned long arg)
 {
-
     struct gdev_handle *h = (struct gdev_handle*)arg;
     struct gdev_ctx *ctx = h->ctx;
     struct gdev_device *gdev = h->gdev;
@@ -51,9 +50,8 @@ int gsched_ctxcreate(unsigned long arg)
     	vgid = 0;
     }
 
-    dev = &gdev_vds[vgid++];
+    dev = &gdev_vds[vgid];
     phys = dev->parent;
-
     /* find empty entity  */
     for(cid = 0; cid < GDEV_CONTEXT_MAX_COUNT; cid++){
 	if(!sched_entity_ptr[cid])
@@ -63,7 +61,7 @@ int gsched_ctxcreate(unsigned long arg)
     if(phys){
 retry:
 	gdev_lock(&phys->global_lock);
-	if(phys->users > 30 ){/*GDEV_CONTEXT_LIMIT Check*/
+	if(phys->users > GDEV_CONTEXT_MAX_COUNT ){/*GDEV_CONTEXT_LIMIT Check*/
 		gdev_unlock(&phys->global_lock);
 		schedule_timeout(5);
 		goto retry;
@@ -81,8 +79,10 @@ retry:
 
 int gsched_launch(unsigned long arg)
 {
+    printk("[%s]:arg:0x%lx\n",__func__,arg);
     struct gdev_handle *h = (struct gdev_handle*)arg;
     struct gdev_ctx *ctx = h->ctx;
+    printk("ctx:0x%lx,\n",ctx);
     struct gdev_sched_entity *se = sched_entity_ptr[ctx->cid];
 
     RESCH_G_PRINT("Launch RESCH_G, CTX#%d\n",ctx->cid);
@@ -92,13 +92,18 @@ int gsched_launch(unsigned long arg)
 //#define DISABLE_RESCH_INTERRUPT
 int gsched_sync(unsigned long arg)
 {
+    printk("[%s]:arg:0x%lx\n",__func__,arg);
+    
     struct gdev_handle *h = (struct gdev_handle*)arg;
     struct gdev_ctx *ctx = h->ctx;
+    printk("ctx:0x%lx,\n",ctx);
     struct gdev_sched_entity *se = sched_entity_ptr[ctx->cid];
+
+    printk(", se:0x%lx\n",se);
 
     //   gpu_release_deadline(se, 2, resch_desc);
 #ifndef DISABLE_RESÇH_INTERRUPT
-    cpu_wq_sleep(se);
+   // cpu_wq_sleep(se);
 #else
     struct gdev_device *gdev = &gdev_vds[h->gdev->id];
     wake_up_process(gdev->sched_com_thread);
@@ -107,6 +112,7 @@ int gsched_sync(unsigned long arg)
 
 int gsched_close(unsigned long arg)
 {
+    printk("[%s]:arg:0x%lx\n",__func__,arg);
     struct gdev_handle *h = (struct gdev_handle*)arg;
     struct gdev_ctx *ctx = h->ctx;
     struct gdev_sched_entity *se = sched_entity_ptr[ctx->cid];

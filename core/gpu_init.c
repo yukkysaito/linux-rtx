@@ -121,7 +121,7 @@ irqreturn_t nouveau_master_intr(int irq, void *arg)
 	    op =  (addr & 0x00070000) >> 16; /* for operation dscrimination  */
 	    cid =  nv_rd32(priv, 0x400708);
 	    se = sched_entity_ptr[cid];
-	    tasklet_hi_schedule(desc->wake_tasklet);
+	    //tasklet_hi_schedule(desc->wake_tasklet);
 	    wake_up_process(se->gdev->sched_com_thread);
 	}
     }
@@ -234,9 +234,8 @@ static int gdev_credit_com_thread(void *data)
 	gdev_replenish_credit_compute(gdev);
 	mod_timer(&timer, effective_jiffies + usecs_to_jiffies(gdev->period));
 	set_current_state(TASK_UNINTERRUPTIBLE);
-	schedule_timeout(1);
+	schedule();
 	effective_jiffies = jiffies;
-
 	gdev_lock(&gdev->sched_com_lock);
 	gdev_time_stamp(&now);
 	gdev_time_sub(&elapse, &now, &last);
@@ -318,7 +317,7 @@ void gsched_create_scheduler(struct gdev_device *gdev)
     sprintf(name, "gschedc%d", gdev->id);
     sched_com = kthread_create(gdev_sched_com_thread, (void*)gdev, name);
     if (sched_com) {
-//	sched_setscheduler(sched_com, SCHED_FIFO, &sp);
+	sched_setscheduler(sched_com, SCHED_FIFO, &sp);
 	wake_up_process(sched_com);
 	gdev->sched_com_thread = sched_com;
     }
@@ -337,7 +336,7 @@ void gsched_create_scheduler(struct gdev_device *gdev)
     sprintf(name, "gcreditc%d", gdev->id);
     credit_com = kthread_create(gdev_credit_com_thread, (void*)gdev, name);
     if (credit_com) {
-//	sched_setscheduler(credit_com, SCHED_FIFO, &sp);
+	sched_setscheduler(credit_com, SCHED_FIFO, &sp);
 	wake_up_process(credit_com);
 	gdev->credit_com_thread = credit_com;
     }
@@ -398,7 +397,7 @@ void gsched_destroy_scheduler(struct gdev_device *gdev)
 	gdev->sched_com_thread = NULL;
     }
 #endif
-    //schedule_timeout_uninterruptible(usecs_to_jiffies(gdev->period));
+    schedule_timeout_uninterruptible(usecs_to_jiffies(gdev->period));
 }
 
 
@@ -437,8 +436,7 @@ static void gpu_device_init(struct gdev_device *dev, int id){
 static int gpu_virtual_device_init(struct gdev_device *dev, int id, uint32_t weight, struct gdev_device *phys){
 
     gpu_device_init(dev, id);
-    dev->period = 10;
-    //GDEV_PERIOD_DEFAULT;
+    dev->period = GDEV_PERIOD_DEFAULT;
     dev->parent = phys;
     dev->com_bw = weight;
     dev->mem_bw = weight;
@@ -449,6 +447,7 @@ static int gpu_virtual_device_init(struct gdev_device *dev, int id, uint32_t wei
 void gsched_init(void){
 
     int i;
+
     /* create physical device */
     gpu_device_init(&phys_ds[0], 0);
 
@@ -488,7 +487,6 @@ void gsched_init(void){
 
 
 void gsched_exit(void){
-
     int i;
     /*minmor*/
     for (i = 0; i< gdev_vcount; i++){
@@ -500,6 +498,5 @@ void gsched_exit(void){
 	nouveau_intr_exit(resch_desc);
     /*unsetnotify*/
        gdev_proc_delete();
-
 
 }

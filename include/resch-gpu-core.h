@@ -21,7 +21,7 @@
 #endif
 
 #define GDEV_DEVICE_MAX_COUNT 4
-#define GDEV_CONTEXT_MAX_COUNT 32
+#define GDEV_CONTEXT_MAX_COUNT 100
 
 /**
   36  * Queueing methods:
@@ -40,7 +40,7 @@
 /**
   50  * virtual device period/threshold.
   51  */
-#define GDEV_PERIOD_DEFAULT 30000 /* microseconds */
+#define GDEV_PERIOD_DEFAULT 300000 /* microseconds */
 #define GDEV_CREDIT_INACTIVE_THRESHOLD GDEV_PERIOD_DEFAULT
 #define GDEV_UPDATE_INTERVAL 1000000
 
