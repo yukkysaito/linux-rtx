@@ -377,7 +377,6 @@ void gsched_destroy_scheduler(struct gdev_device *gdev)
 #endif
 
 #ifdef ENABLE_CREDIT_THREAD
-    printk("credit_thread\n");
     if (gdev->credit_com_thread) {
 	kthread_stop(gdev->credit_com_thread);
 	gdev->credit_com_thread = NULL;
@@ -391,7 +390,6 @@ void gsched_destroy_scheduler(struct gdev_device *gdev)
 #endif
 
 #if 1
-    printk("sched_thread =0x%lx\n",gdev->sched_com_thread);
     if (gdev->sched_com_thread) {
 	kthread_stop(gdev->sched_com_thread);
 	gdev->sched_com_thread = NULL;

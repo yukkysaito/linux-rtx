@@ -79,10 +79,8 @@ retry:
 
 int gsched_launch(unsigned long arg)
 {
-    printk("[%s]:arg:0x%lx\n",__func__,arg);
     struct gdev_handle *h = (struct gdev_handle*)arg;
     struct gdev_ctx *ctx = h->ctx;
-    printk("ctx:0x%lx,\n",ctx);
     struct gdev_sched_entity *se = sched_entity_ptr[ctx->cid];
 
     RESCH_G_PRINT("Launch RESCH_G, CTX#%d\n",ctx->cid);
@@ -92,17 +90,11 @@ int gsched_launch(unsigned long arg)
 //#define DISABLE_RESCH_INTERRUPT
 int gsched_sync(unsigned long arg)
 {
-    printk("[%s]:arg:0x%lx\n",__func__,arg);
-    
     struct gdev_handle *h = (struct gdev_handle*)arg;
     struct gdev_ctx *ctx = h->ctx;
-    printk("ctx:0x%lx,\n",ctx);
     struct gdev_sched_entity *se = sched_entity_ptr[ctx->cid];
 
-    printk(", se:0x%lx\n",se);
-
-    //   gpu_release_deadline(se, 2, resch_desc);
-#ifndef DISABLE_RES$(O)>(BH_INTERRUPT
+#ifndef DISABLE_RES$(Q)>(BH_INTERRUPT
    // cpu_wq_sleep(se);
 #else
     struct gdev_device *gdev = &gdev_vds[h->gdev->id];
@@ -112,7 +104,6 @@ int gsched_sync(unsigned long arg)
 
 int gsched_close(unsigned long arg)
 {
-    printk("[%s]:arg:0x%lx\n",__func__,arg);
     struct gdev_handle *h = (struct gdev_handle*)arg;
     struct gdev_ctx *ctx = h->ctx;
     struct gdev_sched_entity *se = sched_entity_ptr[ctx->cid];
