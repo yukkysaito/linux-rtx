@@ -2,10 +2,11 @@
 #include <resch-api.h>
 #include <resch-config.h>
 #include <resch-core.h>
-
 #include <linux/pci.h>
 #include <linux/kthread.h>
 #include <linux/spinlock.h>
+
+#include <asm/io.h>
 
 /* interrupt  */
 #include <linux/signal.h>
@@ -16,31 +17,37 @@
 /* gpu  */
 #include <resch-gpu-core.h>
 #include "gpu_proc.h"
-#include "nouveau_oclass.h"
+//#include "nouveau_oclass.h"
+
+#define NVDEV_ENGINE_GR_INTR    0x1000
+#define NVDEV_ENGINE_FIFO_INTR   0x100
+#define NVDEV_ENGINE_COPY0_INTR   0x20
+#define NVDEV_ENGINE_COPY1_INTR   0x40
+#define NVDEV_ENGINE_COPY2_INTR   0x80
+
+#define na_rd32(addr,offset) ioread32(addr+offset)
+#define na_wr32(addr,offset, value) iowrite32(addr+offset, value)
 
 struct gdev_device gdev_vds[GDEV_DEVICE_MAX_COUNT];
 struct gdev_device phys_ds[GDEV_DEVICE_MAX_COUNT];
 int gdev_count = 0;
+int gpu_count=0;
 int gdev_vcount = GDEV_DEVICE_MAX_COUNT;
-struct pci_dev *pdev;
-struct resch_irq_desc *resch_desc;
-
+struct resch_irq_desc *resch_desc[GDEV_DEVICE_MAX_COUNT];
 struct gdev_sched_entity *sched_entity_ptr[GDEV_CONTEXT_MAX_COUNT];
 
 struct resch_irq_desc {
     struct pci_dev *dev;
-    int resch_irq;
-    struct irq_desc *ldesc;
-    struct nouveau_mc *pmc;
-    char *nouveau_name;
-    struct nouveau_mc_intr *map_graph;
-    irq_handler_t nouveau_handler;
+    int irq_num;
+    char *gpu_driver_name;
+    void *mappings;
+    void *dev_id_orig;
+    irq_handler_t gpu_driver_handler;
     irq_handler_t resch_handler;
     int sched_flag;
     spinlock_t release_lock;
     struct tasklet_struct *wake_tasklet;
 };
-
 
 void cpu_wq_sleep(struct gdev_sched_entity *se)
 {
@@ -97,84 +104,28 @@ void cpu_wq_wakeup_tasklet(unsigned long arg)
     cpu_wq_wakeup(se);
 }
 
-irqreturn_t nouveau_master_intr(int irq, void *arg) 
+irqreturn_t gsched_intr(int irq, void *arg)
 {
-    struct resch_irq_desc *desc = (struct resch_irq_desc*)arg;
-    struct nouveau_mc *pmc = desc->pmc;
-    struct nouveau_mc_intr *map = desc->map_graph;
-    void *priv;
-    uint32_t stat, addr, cid, op;
-    uint32_t intr;
+    struct resch_irq_desc *__desc = (struct resch_irq_desc*)arg;
+    void *priv = __desc->mappings;
+    uint32_t intr, stat, addr, cid, op;
     struct gdev_sched_entity *se;
 
-    nv_wr32(pmc, 0x00140,0);
-    nv_rd32(pmc, 0x00140);
-
-    intr = nv_rd32(pmc, 0x00100);
-    if( intr & map->stat){
-	priv = nouveau_subdev(pmc, NVDEV_ENGINE_GR);
-	if(priv)
-	    stat = nv_rd32(priv, 0x400100);
+    intr = na_rd32(priv, 0x00100);
+    if (intr & NVDEV_ENGINE_GR_INTR){
+	stat = na_rd32(priv, 0x400100);
 	if(stat & 0x1){
-	    RESCH_G_DPRINT("GDEV_INTERRUPT. stat:0x%lx,addr:0x%lx,cid:0x%lx\n");
-	    addr = nv_rd32(priv, 0x400704);
-	    op =  (addr & 0x00070000) >> 16; /* for operation dscrimination  */
-	    cid =  nv_rd32(priv, 0x400708);
+	    addr = na_rd32(priv, 0x400704);
+	    op = (addr & 0x00007000) >> 16;
+	    cid = na_rd32(priv, 0x400708);
 	    se = sched_entity_ptr[cid];
 	    //tasklet_hi_schedule(desc->wake_tasklet);
 	    wake_up_process(se->gdev->sched_com_thread);
 	}
+
     }
-
-    return desc->nouveau_handler(desc->resch_irq, desc->pmc);
+	return __desc->gpu_driver_handler(__desc->irq_num, __desc->dev_id_orig);
 }
-
-struct pci_dev* nouveau_intr_init(struct resch_irq_desc *desc)
-{
-    int ret;
-    struct irqaction *irq_act = irq_to_desc(desc->dev->irq)->action;
-
-    desc->resch_irq = desc->dev->irq;
-    desc->resch_handler = nouveau_master_intr;
-
-    if(!irq_act)
-    	return -ENODEV;
-
-    desc->nouveau_name = irq_act->name;
-#if 0
-    if(strcmp(desc->nouveau_name, "nouveau")!=0){
-	desc->sched_flag = 0xDEAD;
-	printk("Not found nouveau interrupt handler!\n");
-	return -ENODEV;
-    }
-#endif
-    desc->pmc = irq_act->dev_id;
-    desc->nouveau_handler = irq_act->handler;
-    desc->map_graph = ((struct nouveau_mc_oclass *)nv_object(desc->pmc)->oclass)->intr;
-    
-    while(desc->map_graph->unit && desc->map_graph->unit != NVDEV_ENGINE_GR)
-	desc->map_graph++; 
-
-    /* release interrupt handler of the nouveau */
-    free_irq(desc->resch_irq, desc->pmc);
-    
-    /* registration of hool interrupt handler */
-    request_irq(desc->resch_irq, nouveau_master_intr, IRQF_SHARED, "resch", desc);
-
-    /* initialized tasklet  */
-    desc->wake_tasklet = (struct tasklet_struct*)kmalloc(sizeof(struct tasklet_struct), GFP_KERNEL);
-    tasklet_init(desc->wake_tasklet, cpu_wq_wakeup_tasklet, desc);
-
-    return desc->dev;
-}
-
-void nouveau_intr_exit(struct resch_irq_desc *desc)
-{
-    request_irq(desc->resch_irq, desc->nouveau_handler, IRQF_SHARED, desc->nouveau_name, desc->pmc);
-    free_irq(desc->resch_irq, desc);
-
-}
-
 
 static int gdev_sched_com_thread(void *data)
 {
@@ -222,7 +173,7 @@ static int gdev_credit_com_thread(void *data)
     struct timer_list timer;
     unsigned long effective_jiffies;
 
-    RESCH_G_PRINT("Gdev#%d compute reserve running\n", gdev->id);
+    RESCH_G_PRINT("RESCH_G#%d compute reserve running\n", gdev->id);
 
     setup_timer_on_stack(&timer, gdev_credit_handler, (unsigned long)current);
 
@@ -266,7 +217,7 @@ static int gdev_credit_mem_thread(void *data)
     struct timer_list timer;
     unsigned long effective_jiffies;
 
-    RESCH_G_PRINT("Gdev#%d memory reserve running\n", gdev->id);
+    RESCH_G_PRINT("RESCH_G#%d memory reserve running\n", gdev->id);
 
     setup_timer_on_stack(&timer, gdev_credit_handler, (unsigned long)current);
 
@@ -377,6 +328,7 @@ void gsched_destroy_scheduler(struct gdev_device *gdev)
 #endif
 
 #ifdef ENABLE_CREDIT_THREAD
+    printk("credit_thread\n");
     if (gdev->credit_com_thread) {
 	kthread_stop(gdev->credit_com_thread);
 	gdev->credit_com_thread = NULL;
@@ -390,6 +342,7 @@ void gsched_destroy_scheduler(struct gdev_device *gdev)
 #endif
 
 #if 1
+    printk("sched_thread =0x%lx\n",gdev->sched_com_thread);
     if (gdev->sched_com_thread) {
 	kthread_stop(gdev->sched_com_thread);
 	gdev->sched_com_thread = NULL;
@@ -441,21 +394,87 @@ static int gpu_virtual_device_init(struct gdev_device *dev, int id, uint32_t wei
     return 0;
 }
 
+int gsched_irq_intercept_init(struct resch_irq_desc *desc){
+    struct pci_dev *__dev = NULL;
+    struct resch_irq_desc *__desc = NULL;
+
+    /* registration of hook interrupt handler */
+    request_irq(desc->irq_num, gsched_intr/*change*/, IRQF_SHARED, "resch", desc);
+    /* release interrupt handler of the nouveau */
+    free_irq(desc->irq_num, desc->dev_id_orig);
+
+}
+
+void nouveau_intr_exit(struct resch_irq_desc **desc)
+{
+    int i;
+    struct resch_irq_desc *__desc;
+    for (i = 0; i< gpu_count; i++){
+	__desc = desc[i];
+	if(__desc){
+	    request_irq(__desc->irq_num, __desc->gpu_driver_handler, IRQF_SHARED, __desc->gpu_driver_name, __desc->dev_id_orig);
+	    free_irq(__desc->irq_num, __desc);
+	}
+    }
+
+}
+
+int gsched_pci_init(struct resch_irq_desc **desc_top){
+#define MMIO_BAR0 0
+    struct pci_dev *__dev = NULL;
+    struct resch_irq_desc *__rdesc = NULL;
+    struct irqaction *__act = NULL;
+    int __gpu_count = 0;
+
+    while(__dev = pci_get_class(PCI_CLASS_DISPLAY_VGA << 8, __dev))
+    {
+	__act = irq_to_desc(__dev->irq)->action;
+
+	__rdesc = (struct resch_irq_desc*)kmalloc(sizeof(struct resch_irq_desc), GFP_KERNEL);
+	__rdesc->dev = __dev;
+	__rdesc->irq_num = __dev->irq;
+	__rdesc->gpu_driver_name = __act->name;
+	__rdesc->dev_id_orig = __act->dev_id;
+	__rdesc->gpu_driver_handler = __act->handler;
+	__rdesc->sched_flag = 0;
+	__rdesc->mappings = ioremap(pci_resource_start(__dev, MMIO_BAR0), pci_resource_len(__dev, MMIO_BAR0)); 
+#if 0	
+	/* initialized tasklet  */
+	desc->wake_tasklet = (struct tasklet_struct*)kmalloc(sizeof(struct tasklet_struct), GFP_KERNEL);
+	tasklet_init(desc->wake_tasklet, cpu_wq_wakeup_tasklet, desc);
+#endif
+	gsched_irq_intercept_init(__rdesc);
+	gdev_lock_init(&__rdesc->release_lock);
+	desc_top[__gpu_count] = __rdesc;
+	__gpu_count++;
+    }
+
+    return __gpu_count;
+}
 
 void gsched_init(void){
+int i;
+#define BASE_ADDRESS_NUM 6
+    struct pci_dev *odev;
+    unsigned long rstart,rend,rflags;
+    int vendor_id, device_id, class, sub_vendor_id, sub_device_id, irq;
+    int gpu_device_num;
 
-    int i;
+    /* look at pci devices */
+
+    gdev_count = gpu_count = gsched_pci_init(resch_desc);
+ 
+   if(!gpu_count)
+       return -ENODEV;
+#if 1
+   // int i;
 
     /* create physical device */
-    gpu_device_init(&phys_ds[0], 0);
+    for (i = 0; i < gdev_count; i++)
+	gpu_device_init(&phys_ds[i], i);
 
     RESCH_G_PRINT("Found %d physical device(s).\n-Initialize device structure.....", gdev_count);
 
-    /* look at pci devices */
-    resch_desc = (struct resch_irq_desc*)kmalloc(sizeof(struct resch_irq_desc), GFP_KERNEL);
-    resch_desc->dev = pci_get_class( PCI_CLASS_DISPLAY_VGA << 8, pdev);
-    resch_desc->sched_flag = 0;
-    gdev_lock_init(&resch_desc->release_lock);
 
     /* create virtual device  */
     /* create scheduler thread */
@@ -476,15 +495,12 @@ void gsched_init(void){
 
 
 
-    /* set interrupt handler  */
-    if (!nouveau_intr_init(resch_desc))
-	gsched_exit();
-
+#endif
     /* exit  */
 }
 
-
 void gsched_exit(void){
+#if 1
     int i;
     /*minmor*/
     for (i = 0; i< gdev_vcount; i++){
@@ -492,9 +508,9 @@ void gsched_exit(void){
 	gsched_destroy_scheduler(&gdev_vds[i]);
 	printk("end destroy scheduler #%d\n",i);
     }
-    if (resch_desc->sched_flag != 0xDEAD)
-	nouveau_intr_exit(resch_desc);
+    i = 0;
+    nouveau_intr_exit(resch_desc);
     /*unsetnotify*/
-       gdev_proc_delete();
-
+    gdev_proc_delete();
+#endif
 }
