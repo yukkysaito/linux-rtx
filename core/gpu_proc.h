@@ -89,7 +89,7 @@ int gdev_proc_create(void)
 	sprintf(name, "device_count");
 	proc_dev_count = proc_create_data(name, S_IRUGO, gdev_proc,
 	                                  &gdev_proc_dev_count_fops,
-                                          &gdev_count);
+                                          &gpu_count);
 	if (!proc_dev_count) {
 		RESCH_G_PRINT("Failed to create /proc/gdev/%s\n", name);
 		goto fail_proc_dev_count;
@@ -99,14 +99,14 @@ int gdev_proc_create(void)
 	sprintf(name, "virtual_device_count");
 	proc_virt_dev_count = proc_create_data(name, S_IRUGO, gdev_proc,
 	                                       &gdev_proc_virt_dev_count_fops,
-                                               &gdev_vcount);
+                                               &gpu_vcount);
 	if (!proc_virt_dev_count) {
 		RESCH_G_PRINT("Failed to create /proc/gdev/%s\n", name);
 		goto fail_proc_virt_dev_count;
 	}
 
 	/* allocate virtual devices information area*/
-	proc_vd = kzalloc(sizeof(*proc_vd) * gdev_vcount, GFP_KERNEL);
+	proc_vd = kzalloc(sizeof(*proc_vd) * gpu_vcount, GFP_KERNEL);
 	if (!proc_vd) {
 		RESCH_G_PRINT("Failed to create /proc/gdev/%s\n", name);
 		goto fail_alloc_proc_vd;
@@ -162,7 +162,7 @@ static ssize_t gdev_proc_util_write(struct file *file,
 	/* detect any changes in memory size and reallocate swap.
 	   FIXME: we don't guarantee safety when user administrators change the
 	   memory utilization after virtual devices start being used. */
-	for (i = 0; i < gdev_vcount; i++) {
+	for (i = 0; i < gpu_vcount; i++) {
 		struct gdev_device *virt = &gdev_vds[i];
 		struct gdev_device *phys = virt->parent;
 		if (!phys)
@@ -333,7 +333,7 @@ int gdev_proc_minor_create(int vid)
     return 0;
 
 fail_proc_vd:
-    for (i = 0; i < gdev_vcount; i++) {
+    for (i = 0; i < gpu_vcount; i++) {
 	if (proc_vd[vid].dir) {
 	    sprintf(name, "gdev/vd%d", i);
 	    remove_proc_entry(name, gdev_proc);
@@ -374,7 +374,7 @@ int gdev_proc_delete(void)
 	if (!proc_vd)
 		goto remove_gdev_proc_root;
 
-	for (i = 0; i < gdev_vcount; i++) {
+	for (i = 0; i < gpu_vcount; i++) {
 		if (!proc_vd[i].dir)
 			continue;
 		sprintf(name, "vd%d", i);

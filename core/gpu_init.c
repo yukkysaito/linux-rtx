@@ -17,7 +17,6 @@
 /* gpu  */
 #include <resch-gpu-core.h>
 #include "gpu_proc.h"
-//#include "nouveau_oclass.h"
 
 #define NVDEV_ENGINE_GR_INTR    0x1000
 #define NVDEV_ENGINE_FIFO_INTR   0x100
@@ -26,15 +25,47 @@
 #define NVDEV_ENGINE_COPY2_INTR   0x80
 
 #define na_rd32(addr,offset) ioread32(addr+offset)
+#define na_rd32_native(addr,offset) ioread32be(addr+offset)
 #define na_wr32(addr,offset, value) iowrite32(addr+offset, value)
 
 struct gdev_device gdev_vds[GDEV_DEVICE_MAX_COUNT];
 struct gdev_device phys_ds[GDEV_DEVICE_MAX_COUNT];
-int gdev_count = 0;
 int gpu_count=0;
-int gdev_vcount = GDEV_DEVICE_MAX_COUNT;
+int gpu_vcount = GDEV_DEVICE_MAX_COUNT;
 struct resch_irq_desc *resch_desc[GDEV_DEVICE_MAX_COUNT];
 struct gdev_sched_entity *sched_entity_ptr[GDEV_CONTEXT_MAX_COUNT];
+
+struct irq_num {
+    int num;
+    char dev_name[30];
+};
+
+const struct irq_num nvc0_irq_num[] ={
+    {0x04000000, "ENGINE_DISP" },  /* DISP first, so pageflip timestamps wo    rk. */
+    { 0x00000001,"ENGINE_PPP" },
+    { 0x00000020,"ENGINE_COPY0" },
+    { 0x00000040,"ENGINE_COPY1" },
+    { 0x00000080,"ENGINE_COPY2" },
+    { 0x00000100,"ENGINE_FIFO" },
+    { 0x00001000,"ENGINE_GR" },
+    { 0x00002000,"SUBDEV_FB" },
+    { 0x00008000,"ENGINE_BSP" },
+    { 0x00040000,"SUBDEV_THERM" },
+    { 0x00020000,"ENGINE_VP" },
+    { 0x00100000,"SUBDEV_TIMER" },
+    { 0x00200000,"SUBDEV_GPIO" },      /* PMGR->GPIO */
+    { 0x00200000,"SUBDEV_I2C" },       /* PMGR->I2C/AUX */
+    { 0x01000000,"SUBDEV_PWR" },
+    { 0x02000000,"SUBDEV_LTCG" },
+    { 0x08000000,"SUBDEV_FB" },
+    { 0x10000000,"SUBDEV_BUS" },
+    { 0x40000000,"SUBDEV_IBUS" },
+    { 0x80000000,"ENGINE_SW" },
+    {0,""},
+    {}
+};
+
+
 
 struct resch_irq_desc {
     struct pci_dev *dev;
@@ -110,8 +141,42 @@ irqreturn_t gsched_intr(int irq, void *arg)
     void *priv = __desc->mappings;
     uint32_t intr, stat, addr, cid, op;
     struct gdev_sched_entity *se;
+    int i=0;
+    static int count=0;
 
     intr = na_rd32(priv, 0x00100);
+    addr = na_rd32(priv, 0x400704);
+    cid = na_rd32(priv, 0x400708);
+#if 0
+    if(intr != 0x100000 && intr != 0x1000000){
+	do{
+		printk("[%d:%03x]iRQ! addr:0x%lx, cid:0x%lx, intr:0x%lx(%s)\n",
+	    if(nvc0_irq_num[i].num & intr)
+			__desc->irq_num,
+			count,
+			addr,
+			cid,
+			intr,
+			nvc0_irq_num[i].dev_name);
+
+	}while(nvc0_irq_num[i++].num);
+    }
+#else
+    printk("[%d:%03x]iRQ! addr:0x%lx, cid:0x%lx, intr:0x%lx(",
+	    __desc->irq_num,
+	    count,
+	    addr,
+	    cid,
+	    intr);
+
+    do{
+	if(nvc0_irq_num[i].num & intr)
+	    printk(":%s:",nvc0_irq_num[i].dev_name);
+
+    }while(nvc0_irq_num[i++].num);
+printk(")\n");
+
+#endif
     if (intr & NVDEV_ENGINE_GR_INTR){
 	stat = na_rd32(priv, 0x400100);
 	if(stat & 0x1){
@@ -119,11 +184,19 @@ irqreturn_t gsched_intr(int irq, void *arg)
 	    op = (addr & 0x00007000) >> 16;
 	    cid = na_rd32(priv, 0x400708);
 	    se = sched_entity_ptr[cid];
+	    printk("GCOMPUTE_INTERRUPT! addr:0x%lx:stat:0x%lx:op:0x%lx\n", addr,stat,op);
 	    //tasklet_hi_schedule(desc->wake_tasklet);
-	    wake_up_process(se->gdev->sched_com_thread);
+	   // wake_up_process(se->gdev->sched_com_thread);
+	}
+	if(stat & 0x2){
+	    addr = na_rd32(priv, 0x400704);
+	    op = (addr & 0x00007000) >> 16;
+	    cid = na_rd32(priv, 0x400708);
+	    printk("NV_COMPUTE_IRQ! addr:0x%lx: stat:0x%lx: op:0x%lx\n", addr,stat,op);
 	}
 
     }
+    count = (count + 1) % 0xfff;
 	return __desc->gpu_driver_handler(__desc->irq_num, __desc->dev_id_orig);
 }
 
@@ -462,7 +535,7 @@ int i;
 
     /* look at pci devices */
 
-    gdev_count = gpu_count = gsched_pci_init(resch_desc);
+gpu_count = gsched_pci_init(resch_desc);
  
    if(!gpu_count)
        return -ENODEV;
@@ -470,26 +543,26 @@ int i;
    // int i;
 
     /* create physical device */
-    for (i = 0; i < gdev_count; i++)
+    for (i = 0; i < gpu_count; i++)
 	gpu_device_init(&phys_ds[i], i);
 
-    RESCH_G_PRINT("Found %d physical device(s).\n-Initialize device structure.....", gdev_count);
+    RESCH_G_PRINT("Found %d physical device(s).\n-Initialize device structure.....", gpu_count);
 
 
     /* create virtual device  */
     /* create scheduler thread */
-    for (i = 0; i< gdev_vcount; i++){
-	gpu_virtual_device_init(&gdev_vds[i], i, 100/gdev_vcount, &phys_ds[0]);
+    for (i = 0; i< gpu_vcount; i++){
+	gpu_virtual_device_init(&gdev_vds[i], i, 100/gpu_vcount, &phys_ds[0]);
 	gsched_create_scheduler(&gdev_vds[i]);
     }
     for(i=0;i<GDEV_CONTEXT_MAX_COUNT;i++)
 	sched_entity_ptr[i]=NULL;
 
-    RESCH_G_PRINT("Configured %d virtual device(s).\n", gdev_vcount);
+    RESCH_G_PRINT("Configured %d virtual device(s).\n", gpu_vcount);
 
     /* create /proc entries */
        gdev_proc_create();
-      for (i = 0; i< gdev_vcount; i++){
+      for (i = 0; i< gpu_vcount; i++){
       	gdev_proc_minor_create(i);
      }
 
@@ -503,7 +576,7 @@ void gsched_exit(void){
 #if 1
     int i;
     /*minmor*/
-    for (i = 0; i< gdev_vcount; i++){
+    for (i = 0; i< gpu_vcount; i++){
 	printk("goto destroy scheduler #%d\n",i);
 	gsched_destroy_scheduler(&gdev_vds[i]);
 	printk("end destroy scheduler #%d\n",i);

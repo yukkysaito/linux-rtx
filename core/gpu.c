@@ -22,7 +22,7 @@ struct gdev_vsched_policy *gdev_vsched = &gdev_vsched_null;
 struct gdev_sched_entity* gdev_sched_entity_create(struct gdev_device *gdev, gdev_ctx_t *ctx);
 
 extern struct resch_irq_desc *resch_desc; 
-
+#if 0
 static struct nouveau_cli *cli;
 static struct nouveau_drm *drm;
 
@@ -32,6 +32,7 @@ static struct nouveau_channel {
 
     uint32_t handle;
 };
+#endif
 
 int gsched_ctxcreate(unsigned long arg)
 {
@@ -43,7 +44,6 @@ int gsched_ctxcreate(unsigned long arg)
     uint32_t cid;
     static uint32_t vgid = 0;
     struct gdev_vas *vas = ctx->vas;
-    struct nouveau_channel *chan = (struct nouveau_channel *)vas->pvas;
 
     /* context is sequencial assigned to vGPU  */
     if( vgid >= GDEV_DEVICE_MAX_COUNT){
@@ -94,7 +94,7 @@ int gsched_sync(unsigned long arg)
     struct gdev_ctx *ctx = h->ctx;
     struct gdev_sched_entity *se = sched_entity_ptr[ctx->cid];
 
-#ifndef DISABLE_RES$(Q)>(BH_INTERRUPT
+#ifndef DISABLE_RES$(O)>(BH_INTERRUPT
    // cpu_wq_sleep(se);
 #else
     struct gdev_device *gdev = &gdev_vds[h->gdev->id];
