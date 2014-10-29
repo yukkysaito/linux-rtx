@@ -10,9 +10,6 @@
 
 /* interrupt  */
 #include <linux/signal.h>
-#include <linux/interrupt.h>
-#include <linux/irqdesc.h>
-#include <linux/irq.h>
 
 /* gpu  */
 #include <resch-gpu-core.h>
@@ -30,8 +27,10 @@
 
 struct gdev_device gdev_vds[GDEV_DEVICE_MAX_COUNT];
 struct gdev_device phys_ds[GDEV_DEVICE_MAX_COUNT];
+
 int gpu_count=0;
 int gpu_vcount = GDEV_DEVICE_MAX_COUNT;
+
 struct resch_irq_desc *resch_desc[GDEV_DEVICE_MAX_COUNT];
 struct gdev_sched_entity *sched_entity_ptr[GDEV_CONTEXT_MAX_COUNT];
 
@@ -66,92 +65,6 @@ const struct irq_num nvc0_irq_num[] ={
 };
 
 
-
-struct resch_irq_desc {
-    struct pci_dev *dev;
-    int irq_num;
-    char *gpu_driver_name;
-    void *mappings;
-    void *dev_id_orig;
-    irq_handler_t gpu_driver_handler;
-    irq_handler_t resch_handler;
-    int sched_flag;
-    spinlock_t release_lock;
-    struct tasklet_struct *wake_tasklet;
-};
-
-static inline void dl_runtime_reverse(struct gdev_sched_entity *se)
-{
-#ifdef SCHED_DEADLINE
-    struct task_struct *task = se->task;
-    long long delta;
-
-    delta = sched_clock() - se->wait_time;
-    if( delta > task->dl.runtime - 1000000)
-	delta = task->dl.runtime - 1000000;
-
-    task->dl.runtime -= delta;
-#endif
-}
-
-static inline void dl_runtime_reserve(struct gdev_sched_entity *se)
-{
-#ifdef SCHED_DEADLINE
-    se->dl_runtime = current->dl.runtime;
-    se->dl_deadline = current->dl.deadline;
-#endif
-}
-
-
-void cpu_wq_sleep(struct gdev_sched_entity *se)
-{
-    struct task_struct *task = se->task;
-    struct gdev_device *gdev = se->gdev;
-    struct resch_irq_desc *desc = resch_desc;
-
-    spin_lock_irq(&desc->release_lock);
-    if(se->wait_cond != 0xDEADBEEF){
-	se->wqueue = (wait_queue_head_t *)kmalloc(sizeof(wait_queue_head_t),GFP_KERNEL);
-	init_waitqueue_head(se->wqueue);
-	se->wait_cond = 0xCAFE;
-	se->wait_time = sched_clock();
-	dl_runtime_reserve(se);
-	RESCH_G_PRINT("Process GOTO SLEEP Ctx#0x%lx\n",se->ctx);
-	wait_event(*se->wqueue, se->wait_cond);
-    }else{
-	RESCH_G_PRINT("Already fisnihed Ctx#%d\n",se->ctx->cid);
-	se->wait_cond = 0x0;
-    }
-    spin_unlock_irq(&desc->release_lock);
-}
-
-void cpu_wq_wakeup(struct gdev_sched_entity *se)
-{
-    struct task_struct *task = se->task;
-    struct gdev_device *gdev = se->gdev;
-    struct resch_irq_desc *desc = resch_desc;
-    long long delta;
-
-    spin_lock_irq(&desc->release_lock);
-    if(se->wait_cond == 0xCAFE){
-	dl_runtime_reverse(se);
-	wake_up(se->wqueue);
-	RESCH_G_PRINT("Process Finish! Wakeup Ctx#0x%lx\n",se->ctx);
-	kfree(se->wqueue);
-	se->wait_cond = 0x0;
-    }else{
-	se->wait_cond = 0xDEADBEEF;
-	RESCH_G_PRINT("Not have sleep it!%d\n",se->ctx->cid);
-    }
-    spin_unlock_irq(&desc->release_lock);
-}
-
-void cpu_wq_wakeup_tasklet(unsigned long arg)
-{
-    struct gdev_sched_entity *se  = (struct gdev_sched_entity*)arg;
-    cpu_wq_wakeup(se);
-}
-
 irqreturn_t gsched_intr(int irq, void *arg)
 {
     struct resch_irq_desc *__desc = (struct resch_irq_desc*)arg;
@@ -162,9 +75,8 @@ irqreturn_t gsched_intr(int irq, void *arg)
     static int count=0;
 
     intr = na_rd32(priv, 0x00100);
-    addr = na_rd32(priv, 0x400704);
-    cid = na_rd32(priv, 0x400708);
-#if 0
+
+#if 0 /* DEBUG_PRINT */
     if(intr != 0x100000 && intr != 0x1000000){
 	do{
 	    printk("[%d:%03x]iRQ! addr:0x%lx, cid:0x%lx, intr:0x%lx(%s)\n",
@@ -178,42 +90,25 @@ irqreturn_t gsched_intr(int irq, void *arg)
 
 	}while(nvc0_irq_num[i++].num);
     }
-#else
-    printk("[%d:%03x]iRQ! addr:0x%lx, cid:0x%lx, intr:0x%lx(",
-	    __desc->irq_num,
-	    count,
-	    addr,
-	    cid,
-	    intr);
-
-    do{
-	if(nvc0_irq_num[i].num & intr)
-	    printk(":%s:",nvc0_irq_num[i].dev_name);
-
-    }while(nvc0_irq_num[i++].num);
-    printk(")\n");
-
+    count = (count + 1) % 0xfff;
 #endif
+
     if (intr & NVDEV_ENGINE_GR_INTR){
 	stat = na_rd32(priv, 0x400100);
-	if(stat & 0x1){
+	if(stat & 0x3){
 	    addr = na_rd32(priv, 0x400704);
 	    op = (addr & 0x00007000) >> 16;
 	    cid = na_rd32(priv, 0x400708);
 	    se = sched_entity_ptr[cid];
-	    printk("GCOMPUTE_INTERRUPT! addr:0x%lx:stat:0x%lx:op:0x%lx\n", addr,stat,op);
-	    //tasklet_hi_schedule(desc->wake_tasklet);
+	    if(stat & 0x1)
+		RESCH_G_DPRINT("GDEV_COMPUTE_INTERRUPT! addr:0x%lx:stat:0x%lx:op:0x%lx\n", addr,stat,op);
+	    if(stat & 0x2)
+		RESCH_G_DPRINT("NVRM_COMPUTE_INTERRUPT! addr:0x%lx: stat:0x%lx: op:0x%lx\n", addr,stat,op);
+#ifdef ENABLE_RESCH_INTERRUPT
 	    // wake_up_process(se->gdev->sched_com_thread);
+#endif
 	}
-	if(stat & 0x2){
-	    addr = na_rd32(priv, 0x400704);
-	    op = (addr & 0x00007000) >> 16;
-	    cid = na_rd32(priv, 0x400708);
-	    printk("NV_COMPUTE_IRQ! addr:0x%lx: stat:0x%lx: op:0x%lx\n", addr,stat,op);
-	}
-
     }
-    count = (count + 1) % 0xfff;
     return __desc->gpu_driver_handler(__desc->irq_num, __desc->dev_id_orig);
 }
 
@@ -442,7 +337,8 @@ void gsched_destroy_scheduler(struct gdev_device *gdev)
 }
 
 
-static void gpu_device_init(struct gdev_device *dev, int id){
+static void gpu_device_init(struct gdev_device *dev, int id)
+{
     dev->id = id;
     dev->users = 0;
     dev->accessed = 0;
@@ -474,8 +370,8 @@ static void gpu_device_init(struct gdev_device *dev, int id){
 }
 
 
-static int gpu_virtual_device_init(struct gdev_device *dev, int id, uint32_t weight, struct gdev_device *phys){
-
+static int gpu_virtual_device_init(struct gdev_device *dev, int id, uint32_t weight, struct gdev_device *phys)
+{
     gpu_device_init(dev, id);
     dev->period = GDEV_PERIOD_DEFAULT;
     dev->parent = phys;
@@ -484,7 +380,8 @@ static int gpu_virtual_device_init(struct gdev_device *dev, int id, uint32_t wei
     return 0;
 }
 
-int gsched_irq_intercept_init(struct resch_irq_desc *desc){
+int gsched_irq_intercept_init(struct resch_irq_desc *desc)
+{
     struct pci_dev *__dev = NULL;
     struct resch_irq_desc *__desc = NULL;
 
@@ -506,10 +403,10 @@ void nouveau_intr_exit(struct resch_irq_desc **desc)
 	    free_irq(__desc->irq_num, __desc);
 	}
     }
-
 }
 
-int gsched_pci_init(struct resch_irq_desc **desc_top){
+int gsched_pci_init(struct resch_irq_desc **desc_top)
+{
 #define MMIO_BAR0 0
     struct pci_dev *__dev = NULL;
     struct resch_irq_desc *__rdesc = NULL;
@@ -542,13 +439,12 @@ int gsched_pci_init(struct resch_irq_desc **desc_top){
     return __gpu_count;
 }
 
-void gsched_init(void){
-    int i;
-#define BASE_ADDRESS_NUM 6
-    struct pci_dev *odev;
+void gsched_init(void)
+{
     unsigned long rstart,rend,rflags;
     int vendor_id, device_id, class, sub_vendor_id, sub_device_id, irq;
     int gpu_device_num;
+    int i;
 
     /* look at pci devices */
 
@@ -556,8 +452,6 @@ void gsched_init(void){
 
     if(!gpu_count)
 	return -ENODEV;
-#if 1
-    // int i;
 
     /* create physical device */
     for (i = 0; i < gpu_count; i++)
@@ -569,7 +463,7 @@ void gsched_init(void){
     /* create virtual device  */
     /* create scheduler thread */
     for (i = 0; i< gpu_vcount; i++){
-	gpu_virtual_device_init(&gdev_vds[i], i, 100/gpu_vcount, &phys_ds[0]);
+	gpu_virtual_device_init(&gdev_vds[i], i, 100/gpu_vcount, &phys_ds[i/ (gpu_vcount/2) ]);
 	gsched_create_scheduler(&gdev_vds[i]);
     }
     for(i=0;i<GDEV_CONTEXT_MAX_COUNT;i++)
@@ -583,14 +477,10 @@ void gsched_init(void){
 	gdev_proc_minor_create(i);
     }
 
-
-
-#endif
-    /* exit  */
 }
 
-void gsched_exit(void){
-#if 1
+void gsched_exit(void)
+{
     int i;
     /*minmor*/
     for (i = 0; i< gpu_vcount; i++){
@@ -602,5 +492,4 @@ void gsched_exit(void){
     nouveau_intr_exit(resch_desc);
     /*unsetnotify*/
     gdev_proc_delete();
-#endif
 }

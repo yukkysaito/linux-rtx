@@ -1,9 +1,15 @@
 #ifndef __RESCH_GPU_CORE_H__
 #define __RESCH_CORE_H__
-#include <resch-config.h>
 #include <linux/types.h>
-#include <resch-gpu-lock.h>
 #include <linux/wait.h>
+
+#include <linux/interrupt.h>
+#include <linux/irqdesc.h>
+#include <linux/interrupt.h>
+#include <linux/irq.h>
+
+#include <resch-config.h>
+#include <resch-gpu-lock.h>
 #include "gdev_list.h"
 
 
@@ -446,6 +452,18 @@ struct gdev_handle {
 	int fd_resch; /*hack*/
 };
 
+struct resch_irq_desc {
+    struct pci_dev *dev;
+    int irq_num;
+    char *gpu_driver_name;
+    void *mappings;
+    void *dev_id_orig;
+    irq_handler_t gpu_driver_handler;
+    irq_handler_t resch_handler;
+    int sched_flag;
+    spinlock_t release_lock;
+    struct tasklet_struct *wake_tasklet;
+};
 
 struct gdev_vsched_policy {
     void (*schedule_compute)(struct gdev_sched_entity *se);

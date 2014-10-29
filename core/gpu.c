@@ -12,27 +12,92 @@
 #include <linux/signal.h>
 #include <linux/kthread.h>
 
-#if 1
-#include "gdev_vsched_band.c"
+#define GPU_VSCHED_BAND
+#define GPU_VSCHED_NULL
+
+#ifdef GPU_VSCHED_BAND
+#include "gpu_vsched_band.c"
 struct gdev_vsched_policy *gdev_vsched = &gdev_vsched_band;
 #else
-#include "gdev_vsched_null.c"
+#include "gpu_vsched_null.c"
 struct gdev_vsched_policy *gdev_vsched = &gdev_vsched_null;
 #endif
+
 struct gdev_sched_entity* gdev_sched_entity_create(struct gdev_device *gdev, gdev_ctx_t *ctx);
 
 extern struct resch_irq_desc *resch_desc; 
-#if 0
-static struct nouveau_cli *cli;
-static struct nouveau_drm *drm;
 
-static struct nouveau_channel {
-    struct nouveau_cli *cli;
-    struct nouveau_drm *drm;
+static inline void dl_runtime_reverse(struct gdev_sched_entity *se)
+{
+#ifdef SCHED_DEADLINE
+    struct task_struct *task = se->task;
+    long long delta;
 
-    uint32_t handle;
-};
+    delta = sched_clock() - se->wait_time;
+    if( delta > task->dl.runtime - 1000000)
+	delta = task->dl.runtime - 1000000;
+
+    task->dl.runtime -= delta;
 #endif
+}
+
+static inline void dl_runtime_reserve(struct gdev_sched_entity *se)
+{
+#ifdef SCHED_DEADLINE
+    se->dl_runtime = current->dl.runtime;
+    se->dl_deadline = current->dl.deadline;
+#endif
+}
+
+
+void cpu_wq_sleep(struct gdev_sched_entity *se)
+{
+    struct task_struct *task = se->task;
+    struct gdev_device *gdev = se->gdev;
+    struct resch_irq_desc *desc = resch_desc;
+
+    spin_lock_irq(&desc->release_lock);
+    if(se->wait_cond != 0xDEADBEEF){
+	se->wqueue = (wait_queue_head_t *)kmalloc(sizeof(wait_queue_head_t),GFP_KERNEL);
+	init_waitqueue_head(se->wqueue);
+	se->wait_cond = 0xCAFE;
+	se->wait_time = sched_clock();
+	dl_runtime_reserve(se);
+	RESCH_G_PRINT("Process GOTO SLEEP Ctx#0x%lx\n",se->ctx);
+	wait_event(*se->wqueue, se->wait_cond);
+    }else{
+	RESCH_G_PRINT("Already fisnihed Ctx#%d\n",se->ctx->cid);
+	se->wait_cond = 0x0;
+    }
+    spin_unlock_irq(&desc->release_lock);
+}
+
+void cpu_wq_wakeup(struct gdev_sched_entity *se)
+{
+    struct task_struct *task = se->task;
+    struct gdev_device *gdev = se->gdev;
+    struct resch_irq_desc *desc = resch_desc;
+    long long delta;
+
+    spin_lock_irq(&desc->release_lock);
+    if(se->wait_cond == 0xCAFE){
+	dl_runtime_reverse(se);
+	wake_up(se->wqueue);
+	RESCH_G_PRINT("Process Finish! Wakeup Ctx#0x%lx\n",se->ctx);
+	kfree(se->wqueue);
+	se->wait_cond = 0x0;
+    }else{
+	se->wait_cond = 0xDEADBEEF;
+	RESCH_G_PRINT("Not have sleep it!%d\n",se->ctx->cid);
+    }
+    spin_unlock_irq(&desc->release_lock);
+}
+
+void cpu_wq_wakeup_tasklet(unsigned long arg)
+{
+    struct gdev_sched_entity *se  = (struct gdev_sched_entity*)arg;
+    cpu_wq_wakeup(se);
+}
 
 int gsched_ctxcreate(unsigned long arg)
 {
@@ -42,12 +107,19 @@ int gsched_ctxcreate(unsigned long arg)
     struct gdev_device *dev;
     struct gdev_device *phys;
     uint32_t cid;
-    static uint32_t vgid = 0;
+    uint32_t vgid = 0;
+    uint32_t phys_id = h->dev_id;
     struct gdev_vas *vas = ctx->vas;
 
     /* context is sequencial assigned to vGPU  */
     if( vgid >= GDEV_DEVICE_MAX_COUNT){
     	vgid = 0;
+    }
+
+retry_vgid:
+    if(gdev_vds[vgid].parent->id != phys_id){
+	vgid++;
+	goto retry_vgid;
     }
 
     dev = &gdev_vds[vgid];
@@ -94,7 +166,7 @@ int gsched_sync(unsigned long arg)
     struct gdev_ctx *ctx = h->ctx;
     struct gdev_sched_entity *se = sched_entity_ptr[ctx->cid];
 
-#ifndef DISABLE_RESÇH_INTERRUPT
+#ifdef ENABLE_RESÇH_INTERRUPT
    // cpu_wq_sleep(se);
 #else
     struct gdev_device *gdev = &gdev_vds[h->gdev->id];
