@@ -37,6 +37,10 @@
 #define GDEV_PRIO_MIN 0
 #define GDEV_PRIO_DEFAULT 20
 
+#ifndef MAX_RT_PRIO
+#define MAX_RT_PRIO 100
+#endif
+
 /**
   50  * virtual device period/threshold.
   51  */
