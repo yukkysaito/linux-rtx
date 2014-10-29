@@ -488,8 +488,8 @@ extern int gsched_close(unsigned long __arg);
 extern struct gdev_device phys_ds[GDEV_DEVICE_MAX_COUNT];
 extern struct gdev_device gdev_vds[GDEV_DEVICE_MAX_COUNT];
 extern struct gdev_sched_entity *sched_entity_ptr[GDEV_CONTEXT_MAX_COUNT];
-extern int gdev_vcount;
-extern int gdev_count;
+extern int gpu_vcount;
+extern int gpu_count;
 
 extern gdev_lock_t global_sched_lock;
 
