@@ -6,13 +6,13 @@
 #include <linux/wait.h>
 #include "gdev_list.h"
 
-#define MAX 25
 
-#define SCHED_YILED() yield()
-
-#define RESCH_G_PRINT(fmt,arg...) printk(KERN_INFO "[RESCH-G]:" fmt, ##arg)
-
+/**/
 #define RESCH_GPU_DEBUG_PRINT
+
+#define MAX 25
+#define SCHED_YILED() yield()
+#define RESCH_G_PRINT(fmt,arg...) printk(KERN_INFO "[RESCH-G]:" fmt, ##arg)
 
 #ifdef RESCH_GPU_DEBUG_PRINT
 #define RESCH_G_DPRINT(fmt,arg...) printk(KERN_INFO "[RESCH-G]:" fmt, ##arg)

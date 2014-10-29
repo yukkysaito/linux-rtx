@@ -80,6 +80,29 @@ struct resch_irq_desc {
     struct tasklet_struct *wake_tasklet;
 };
 
+static inline void dl_runtime_reverse(struct gdev_sched_entity *se)
+{
+#ifdef SCHED_DEADLINE
+    struct task_struct *task = se->task;
+    long long delta;
+
+    delta = sched_clock() - se->wait_time;
+    if( delta > task->dl.runtime - 1000000)
+	delta = task->dl.runtime - 1000000;
+
+    task->dl.runtime -= delta;
+#endif
+}
+
+static inline void dl_runtime_reserve(struct gdev_sched_entity *se)
+{
+#ifdef SCHED_DEADLINE
+    se->dl_runtime = current->dl.runtime;
+    se->dl_deadline = current->dl.deadline;
+#endif
+}
+
+
 void cpu_wq_sleep(struct gdev_sched_entity *se)
 {
     struct task_struct *task = se->task;
@@ -90,11 +113,9 @@ void cpu_wq_sleep(struct gdev_sched_entity *se)
     if(se->wait_cond != 0xDEADBEEF){
 	se->wqueue = (wait_queue_head_t *)kmalloc(sizeof(wait_queue_head_t),GFP_KERNEL);
 	init_waitqueue_head(se->wqueue);
-
 	se->wait_cond = 0xCAFE;
-	se->dl_runtime = current->dl.runtime;
 	se->wait_time = sched_clock();
-	se->dl_deadline = current->dl.deadline;
+	dl_runtime_reserve(se);
 	RESCH_G_PRINT("Process GOTO SLEEP Ctx#0x%lx\n",se->ctx);
 	wait_event(*se->wqueue, se->wait_cond);
     }else{
@@ -110,14 +131,10 @@ void cpu_wq_wakeup(struct gdev_sched_entity *se)
     struct gdev_device *gdev = se->gdev;
     struct resch_irq_desc *desc = resch_desc;
     long long delta;
- 
+
     spin_lock_irq(&desc->release_lock);
     if(se->wait_cond == 0xCAFE){
-	delta = sched_clock() - se->wait_time;
-	if( delta > task->dl.runtime - 1000000)
-	    delta = task->dl.runtime - 1000000;
-
-	task->dl.runtime -= delta;
+	dl_runtime_reverse(se);
 	wake_up(se->wqueue);
 	RESCH_G_PRINT("Process Finish! Wakeup Ctx#0x%lx\n",se->ctx);
 	kfree(se->wqueue);
@@ -150,14 +167,14 @@ irqreturn_t gsched_intr(int irq, void *arg)
 #if 0
     if(intr != 0x100000 && intr != 0x1000000){
 	do{
-		printk("[%d:%03x]iRQ! addr:0x%lx, cid:0x%lx, intr:0x%lx(%s)\n",
-	    if(nvc0_irq_num[i].num & intr)
-			__desc->irq_num,
-			count,
-			addr,
-			cid,
-			intr,
-			nvc0_irq_num[i].dev_name);
+	    printk("[%d:%03x]iRQ! addr:0x%lx, cid:0x%lx, intr:0x%lx(%s)\n",
+		    if(nvc0_irq_num[i].num & intr)
+		    __desc->irq_num,
+		    count,
+		    addr,
+		    cid,
+		    intr,
+		    nvc0_irq_num[i].dev_name);
 
 	}while(nvc0_irq_num[i++].num);
     }
@@ -174,7 +191,7 @@ irqreturn_t gsched_intr(int irq, void *arg)
 	    printk(":%s:",nvc0_irq_num[i].dev_name);
 
     }while(nvc0_irq_num[i++].num);
-printk(")\n");
+    printk(")\n");
 
 #endif
     if (intr & NVDEV_ENGINE_GR_INTR){
@@ -186,7 +203,7 @@ printk(")\n");
 	    se = sched_entity_ptr[cid];
 	    printk("GCOMPUTE_INTERRUPT! addr:0x%lx:stat:0x%lx:op:0x%lx\n", addr,stat,op);
 	    //tasklet_hi_schedule(desc->wake_tasklet);
-	   // wake_up_process(se->gdev->sched_com_thread);
+	    // wake_up_process(se->gdev->sched_com_thread);
 	}
 	if(stat & 0x2){
 	    addr = na_rd32(priv, 0x400704);
@@ -197,7 +214,7 @@ printk(")\n");
 
     }
     count = (count + 1) % 0xfff;
-	return __desc->gpu_driver_handler(__desc->irq_num, __desc->dev_id_orig);
+    return __desc->gpu_driver_handler(__desc->irq_num, __desc->dev_id_orig);
 }
 
 static int gdev_sched_com_thread(void *data)
@@ -213,7 +230,7 @@ static int gdev_sched_com_thread(void *data)
 	if (gdev->users)
 	    gdev_select_next_compute(gdev);
     }
-	return 0;
+    return 0;
 
 }
 static int gdev_sched_mem_thread(void *data)
@@ -526,7 +543,7 @@ int gsched_pci_init(struct resch_irq_desc **desc_top){
 }
 
 void gsched_init(void){
-int i;
+    int i;
 #define BASE_ADDRESS_NUM 6
     struct pci_dev *odev;
     unsigned long rstart,rend,rflags;
@@ -535,12 +552,12 @@ int i;
 
     /* look at pci devices */
 
-gpu_count = gsched_pci_init(resch_desc);
- 
-   if(!gpu_count)
-       return -ENODEV;
+    gpu_count = gsched_pci_init(resch_desc);
+
+    if(!gpu_count)
+	return -ENODEV;
 #if 1
-   // int i;
+    // int i;
 
     /* create physical device */
     for (i = 0; i < gpu_count; i++)
@@ -561,10 +578,10 @@ gpu_count = gsched_pci_init(resch_desc);
     RESCH_G_PRINT("Configured %d virtual device(s).\n", gpu_vcount);
 
     /* create /proc entries */
-       gdev_proc_create();
-      for (i = 0; i< gpu_vcount; i++){
-      	gdev_proc_minor_create(i);
-     }
+    gdev_proc_create();
+    for (i = 0; i< gpu_vcount; i++){
+	gdev_proc_minor_create(i);
+    }
 
 
 

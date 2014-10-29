@@ -218,30 +218,37 @@ void gdev_sched_entity_destroy(struct gdev_sched_entity *se)
 void gdev_sched_sleep(struct gdev_sched_entity *se)
 {
     struct task_struct *task = se->task;
-    
+#ifdef SCHED_DEADLINE
     if(task->policy == SCHED_DEADLINE){
 	cpu_wq_sleep(se);
     }else
     {	
+#endif
 	set_current_state(TASK_UNINTERRUPTIBLE);
 	schedule();
+#ifdef SCHED_DEADLINE
     }
+#endif
 }
 
 
 int gdev_sched_wakeup(struct gdev_sched_entity *se)
 {
     struct task_struct *task = se->task;
+#ifdef SCHED_DEADLINE
     if(task->policy == SCHED_DEADLINE){
 	cpu_wq_wakeup(se);
     }
     else{
+#endif
 	if(!wake_up_process(task)) {
 	    schedule_timeout_interruptible(1);
 	    if(!wake_up_process(task))
 		return -EINVAL;
 	}
+#ifdef SCHED_DEADLINE
     }
+#endif
     return 0;
 }
 
