@@ -69,9 +69,9 @@ resched:
 		   will awaken it upon completions of their compute launches. */
 		
 		se->task = current; 
-		printk("[ctx#%d]goto sleep! sleep task is 0x%lx\n", se->ctx->cid, se->task);
+		printk("[ctx#%d]goto sleep! sleep task is 0x%lx\n", se->ctx, se->task);
 		gdev_sched_sleep(se);
-		printk("[ctx#%d]out of sleep!\n",se->ctx->cid);
+		printk("[ctx#%d]out of sleep!\n",se->ctx);
 
 		goto resched;
 	}
@@ -85,7 +85,7 @@ resched:
 		gdev_current_com_set(gdev, (void*)se);
 		gdev_unlock(&gdev->sched_com_lock);
 	}
-	RESCH_G_PRINT("Go to Launch ctx#%d \n",se->ctx->cid);
+	RESCH_G_PRINT("Go to Launch ctx#%d \n",se->ctx);
 	/* this function call will block any new contexts to be created during
 	   the busy period on the GPU. */
 	gdev_access_start(gdev);
@@ -153,8 +153,8 @@ void gdev_select_next_compute(struct gdev_device *gdev)
 		    gdev_unlock(&next->sched_com_lock);
 
 		    if (gdev_sched_wakeup(se) < 0) {
-			RESCH_G_PRINT("Failed to wake up context 0x%lx\n", se->ctx->cid);
-			RESCH_G_PRINT("Perhaps context %d is already up\n", se->ctx->cid);
+			RESCH_G_PRINT("Failed to wake up context 0x%lx\n", se->ctx);
+			RESCH_G_PRINT("Perhaps context %d is already up\n", se->ctx);
 		    }
 
 		}

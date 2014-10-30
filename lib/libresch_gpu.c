@@ -16,7 +16,7 @@
 #include "api_gpu.h"
 
 #define discard_arg(arg)	asm("" : : "r"(arg))
-void *ghandler= NULL;
+struct rtxGhandle **ghandler= NULL;
 
 /**
  * internal function for gpu scheduler core, using ioctl() system call.
@@ -48,16 +48,15 @@ int rtx_gpu_init(void)
 {
     struct sigaction sa_kill;
     int ret;
-    
+  
     ret = rt_init();
-    
+
     /* reregister the KILL signal. */
     memset(&sa_kill, 0, sizeof(sa_kill));
     sigemptyset(&sa_kill.sa_mask);
     sa_kill.sa_handler = gpu_kill_handler;
     sa_kill.sa_flags = 0;
     sigaction(SIGINT, &sa_kill, NULL); /* */
-    
 
     return ret;
 }
@@ -70,21 +69,29 @@ int rtx_gpu_exit(void)
     return rt_exit();
 }
 
-int rtx_gpu_open(void *arg)
+int rtx_gpu_open(struct rtxGhandle **arg, unsigned int dev_id)
 {
+    if (!*arg){
+	*arg =(struct rtxGhandle*)malloc(sizeof(struct rtxGhandle));
+	if (!*arg)
+	    return -1;
+    }
     ghandler = arg;
-    return __rtx_gpu_ioctl(GDEV_IOCTL_OPEN, arg);
+    (*arg)->dev_id = dev_id;
+    return __rtx_gpu_ioctl(GDEV_IOCTL_OPEN, (unsigned long)*arg);
 }
-int rtx_gpu_launch(void *arg)
+int rtx_gpu_launch(struct rtxGhandle **arg)
 {
-    return __rtx_gpu_ioctl(GDEV_IOCTL_LAUNCH, arg);
+    return __rtx_gpu_ioctl(GDEV_IOCTL_LAUNCH, (unsigned long)*arg);
 }
-int rtx_gpu_sync(void *arg)
+int rtx_gpu_sync(struct rtxGhandle **arg)
 {
-    return __rtx_gpu_ioctl(GDEV_IOCTL_SYNC, arg);
+    return __rtx_gpu_ioctl(GDEV_IOCTL_SYNC, (unsigned long)*arg);
 }
-int rtx_gpu_close(void *arg)
+int rtx_gpu_close(struct rtxGhandle **arg)
 {
-    return __rtx_gpu_ioctl(GDEV_IOCTL_CLOSE, arg);
+    int ret = __rtx_gpu_ioctl(GDEV_IOCTL_CLOSE, (unsigned long)*arg);
+    ghandler = NULL;
+    return ret;
 }
 
