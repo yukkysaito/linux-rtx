@@ -463,13 +463,15 @@ void gsched_init(void)
     /* create virtual device  */
     /* create scheduler thread */
     for (i = 0; i< gpu_vcount; i++){
-	gpu_virtual_device_init(&gdev_vds[i], i, 100/gpu_vcount, &phys_ds[i/ (gpu_vcount/2) ]);
+	gpu_virtual_device_init(&gdev_vds[i], i, 100/gpu_vcount, &phys_ds[i/ (gpu_vcount/gpu_count) ]);
 	gsched_create_scheduler(&gdev_vds[i]);
     }
+
     for(i=0;i<GDEV_CONTEXT_MAX_COUNT;i++)
 	sched_entity_ptr[i]=NULL;
 
-    RESCH_G_PRINT("Configured %d virtual device(s).\n", gpu_vcount);
+    RESCH_G_PRINT("Configured %d virtual device(s). \n", gpu_vcount);
+    RESCH_G_PRINT("Each physical device(s) have %d virtual device(s).\n", gpu_vcount/gpu_count);
 
     /* create /proc entries */
     gdev_proc_create();

@@ -106,6 +106,37 @@ void cpu_wq_wakeup_tasklet(unsigned long arg)
     cpu_wq_wakeup(se);
 }
 
+#define PICKUP_GPU_MIN 0x1
+#define PICKUP_GPU_FIFO 0x2
+#define PICKUP_GPU_ONE 0x0
+
+static uint32_t pick_up_next_gpu(uint32_t phys_id, uint32_t flag)
+{
+    uint32_t __vgid = 0;
+    int i;
+    int min = 99;
+
+    switch (flag){
+	case PICKUP_GPU_MIN:
+	    for(i =0;i < GDEV_DEVICE_MAX_COUNT; i++){
+		if(gdev_vds[i].parent->id == phys_id)
+		    if(min>gdev_vds[i].users){
+			min = gdev_vds[i].users;
+			__vgid = i;
+		    }
+	    }
+	    break;
+	case PICKUP_GPU_FIFO:
+	    break;
+	case PICKUP_GPU_ONE:
+	    break;
+
+    }
+    RESCH_G_DPRINT("RESCH select VGPU is %d\n", __vgid);
+    return __vgid;
+}
+
+
 int gsched_ctxcreate(unsigned long arg)
 {
     struct rtxGhandle *h = (struct rtxGhandle*)arg;
@@ -116,16 +147,7 @@ int gsched_ctxcreate(unsigned long arg)
     uint32_t cid;
     uint32_t vgid = 0;
 
-    /* context is sequencial assigned to vGPU  */
-    if( vgid >= GDEV_DEVICE_MAX_COUNT){
-    	vgid = 0;
-    }
-
-retry_vgid:
-    if(gdev_vds[vgid].parent->id != phys_id){
-	vgid++;
-	goto retry_vgid;
-    }
+    vgid = pick_up_next_gpu(phys_id, PICKUP_GPU_MIN);
 
     /* find empty entity  */
     for(cid = 0; cid < GDEV_CONTEXT_MAX_COUNT; cid++){
