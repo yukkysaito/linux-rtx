@@ -8,11 +8,18 @@
 #define GDEV_IOCTL_SYNC 203
 #define GDEV_IOCTL_CLOSE 204
 
+#define GPU_SCHED_FLAG_INIT   0x01
+#define GPU_SCHED_FLAG_OPEN   0x02
+#define GPU_SCHED_FLAG_LAUNCH 0x04
+#define GPU_SCHED_FLAG_SYNCH  0x08
+#define GPU_SCHED_FLAG_CLOSE  0x10
+
 struct rtxGhandle{
     uint32_t dev_id;
     uint32_t vdev_id;
     uint32_t cid;
     void *task;
+    uint8_t sched_flag;
 };
 
 /************************************************************
