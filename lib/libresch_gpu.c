@@ -71,24 +71,25 @@ int rtx_gpu_exit(void)
     return rt_exit();
 }
 
-static inline int Ghandle_init(struct rtxGhandle **arg){
+static int Ghandle_init(struct rtxGhandle **arg){
 
-    if (!*arg){
+    if (!(*arg)){
 	*arg =(struct rtxGhandle*)malloc(sizeof(struct rtxGhandle));
-	if (!*arg)
+
+	if (!(*arg))
 	    return -1;
+	
 	ghandler = arg;
+	(*arg)->sched_flag = GPU_SCHED_FLAG_INIT;
     }
-    (*arg)->sched_flag = GPU_SCHED_FLAG_INIT;
 
     return 1;
 }
 
 int rtx_gpu_open(struct rtxGhandle **arg, unsigned int dev_id)
 {
-    if (Ghandle_init(arg))
+    if (!Ghandle_init(arg))
 	return -ENOMEM;
-
 
     (*arg)->dev_id = dev_id;
     (*arg)->sched_flag |= GPU_SCHED_FLAG_OPEN;
@@ -107,6 +108,9 @@ int rtx_gpu_launch(struct rtxGhandle **arg)
 	return -EINVAL;
     }
 
+    (*arg)->sched_flag &= ~GPU_SCHED_FLAG_SYNCH;
+    (*arg)->sched_flag |= GPU_SCHED_FLAG_LAUNCH;
+
     return __rtx_gpu_ioctl(GDEV_IOCTL_LAUNCH, (unsigned long)*arg);
 }
 
@@ -121,7 +125,7 @@ int rtx_gpu_sync(struct rtxGhandle **arg)
 	return -EINVAL;
     }
 
-    if ( !((*arg)->sched_flag & GPU_SCHED_FLAG_SYNCH)){
+    if ( ((*arg)->sched_flag & GPU_SCHED_FLAG_SYNCH)){
 	fprintf(stderr, "You already called rtx_gpu_sync.\n");
 	fprintf(stderr,	"Sync is only one call per one handle.\n");
 	return -EINVAL;
@@ -138,7 +142,6 @@ int rtx_gpu_close(struct rtxGhandle **arg)
     if ( !(*arg) )
 	return -EINVAL;
 
-
     if ( !((*arg)->sched_flag & GPU_SCHED_FLAG_OPEN)){
 	fprintf(stderr, "You did not call rtx_gpu_open\n");
 	return -EINVAL;
@@ -146,11 +149,8 @@ int rtx_gpu_close(struct rtxGhandle **arg)
 
     int ret = __rtx_gpu_ioctl(GDEV_IOCTL_CLOSE, (unsigned long)*arg);
 
-    if(*arg)
-	free(*arg);
-
+    free(*arg);
     ghandler = NULL;
-
     return ret;
 }
 
