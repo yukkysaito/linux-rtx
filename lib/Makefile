@@ -1,15 +1,16 @@
 TARGET	= libresch
-TARGET_GPU	= libresch_gpu
+TARGET_GPU = libresch_gpu
+NVRM_OBJS = nvrm_ioctl.o nvrm_submthd.o nvrm_irqctx.o
 INCDIR	= ../include/
 CFLAGS	= -W -Wall -g -O2 -s -pipe
 
 
 .PHONY: all
-all: $(TARGET).o $(TARGET_GPU).o
+all: $(TARGET).o $(TARGET_GPU).o $(NVRM_OBJS)
 	ar -rcs $(TARGET).a $(TARGET).o
-	ar -rcs $(TARGET_GPU).a $(TARGET_GPU).o
+	ar -rcs $(TARGET_GPU).a $(TARGET_GPU).o $(NVRM_OBJS)
 	gcc -shared -Wl,-soname,$(TARGET).so.1 -o ./$(TARGET).so.1.0.0 $(TARGET).o
-	gcc -shared -Wl,-soname,$(TARGET_GPU).so.1 -o ./$(TARGET_GPU).so.1.0.0 $(TARGET_GPU).o
+	gcc -shared -Wl,-soname,$(TARGET_GPU).so.1 -o ./$(TARGET_GPU).so.1.0.0 $(TARGET_GPU).o $(NVRM_OBJS)
 
 %.o:%.c
 	gcc -fPIC -c $^ -o $@ $(CFLAGS) -I$(INCDIR)
