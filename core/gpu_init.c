@@ -68,6 +68,7 @@ const struct irq_num nvc0_irq_num[] ={
 irqreturn_t gsched_intr(int irq, void *arg)
 {
     struct resch_irq_desc *__desc = (struct resch_irq_desc*)arg;
+#if 1 /* nofunction */
     void *priv = __desc->mappings;
     uint32_t intr, stat, addr, cid, op;
     struct gdev_sched_entity *se;
@@ -75,7 +76,6 @@ irqreturn_t gsched_intr(int irq, void *arg)
     static int count=0;
 
     intr = na_rd32(priv, 0x00100);
-
 #if 0 /* DEBUG_PRINT */
     if(intr != 0x100000 && intr != 0x1000000){
 	do{
@@ -101,14 +101,18 @@ irqreturn_t gsched_intr(int irq, void *arg)
 	    cid = na_rd32(priv, 0x400708);
 	    se = sched_entity_ptr[cid];
 	    if(stat & 0x1)
-		RESCH_G_DPRINT("GDEV_COMPUTE_INTERRUPT! addr:0x%lx:stat:0x%lx:op:0x%lx\n", addr,stat,op);
-	    if(stat & 0x2)
-		RESCH_G_DPRINT("NVRM_COMPUTE_INTERRUPT! addr:0x%lx: stat:0x%lx: op:0x%lx\n", addr,stat,op);
+		RESCH_G_DPRINT("GDEV_COMPUTE_INTERRUPT! addr:0x%08lx,stat:0x%08lx,op:0x%08lx\n", addr,stat,op);
+	    if(stat & 0x2){
+		RESCH_G_DPRINT("NVRM_COMPUTE_INTERRUPT! addr:0x%08lx,stat:0x%08lx,op:0x%08lx\n", addr,stat,op);
+	    }
+
 #ifdef ENABLE_RESCH_INTERRUPT
 	    // wake_up_process(se->gdev->sched_com_thread);
 #endif
 	}
     }
+
+#endif
     return __desc->gpu_driver_handler(__desc->irq_num, __desc->dev_id_orig);
 }
 
@@ -116,7 +120,7 @@ static int gdev_sched_com_thread(void *data)
 {
     struct gdev_device *gdev = (struct gdev_device*)data;
 
-    RESCH_G_PRINT("RESCH_G#%d compute scheduler runnning\n", gdev->id);
+    RESCH_G_PRINT("RESCH_G#%d-%d compute scheduler runnning\n", gdev->parent?gdev->parent->id:0,gdev->id);
     gdev->sched_com_thread = current;
 
     while (!kthread_should_stop()) {
@@ -132,7 +136,7 @@ static int gdev_sched_mem_thread(void *data)
 {
     struct gdev_device *gdev = (struct gdev_device*)data;
 
-    RESCH_G_PRINT("RESCH_G#%d compute scheduler runnning\n", gdev->id);
+    RESCH_G_PRINT("RESCH_G#%d-%d compute scheduler runnning\n", gdev->parent?gdev->parent->id:0,gdev->id);
     gdev->sched_mem_thread = current;
 
     while (!kthread_should_stop()) {
@@ -288,10 +292,10 @@ void gsched_create_scheduler(struct gdev_device *gdev)
 #endif
     /* set up virtual GPU schedulers, if required. */
     if (phys) {
-	gdev_lock(&phys->sched_com_lock);
+	//	gdev_lock(&phys->sched_com_lock);
 	gdev_list_init(&gdev->list_entry_com, (void*)gdev);
 	gdev_list_add(&gdev->list_entry_com, &phys->sched_com_list);
-	gdev_unlock(&phys->sched_com_lock);
+	//	gdev_unlock(&phys->sched_com_lock);
 	gdev_replenish_credit_compute(gdev);
 
 	gdev_lock(&phys->sched_mem_lock);
@@ -313,7 +317,6 @@ void gsched_destroy_scheduler(struct gdev_device *gdev)
 #endif
 
 #ifdef ENABLE_CREDIT_THREAD
-    printk("credit_thread\n");
     if (gdev->credit_com_thread) {
 	kthread_stop(gdev->credit_com_thread);
 	gdev->credit_com_thread = NULL;
@@ -327,7 +330,6 @@ void gsched_destroy_scheduler(struct gdev_device *gdev)
 #endif
 
 #if 1
-    printk("sched_thread =0x%lx\n",gdev->sched_com_thread);
     if (gdev->sched_com_thread) {
 	kthread_stop(gdev->sched_com_thread);
 	gdev->sched_com_thread = NULL;
@@ -337,7 +339,7 @@ void gsched_destroy_scheduler(struct gdev_device *gdev)
 }
 
 
-static void gpu_device_init(struct gdev_device *dev, int id)
+void gpu_device_init(struct gdev_device *dev, int id)
 {
     dev->id = id;
     dev->users = 0;
@@ -370,7 +372,7 @@ static void gpu_device_init(struct gdev_device *dev, int id)
 }
 
 
-static int gpu_virtual_device_init(struct gdev_device *dev, int id, uint32_t weight, struct gdev_device *phys)
+int gpu_virtual_device_init(struct gdev_device *dev, int id, uint32_t weight, struct gdev_device *phys)
 {
     gpu_device_init(dev, id);
     dev->period = GDEV_PERIOD_DEFAULT;
@@ -426,7 +428,7 @@ int gsched_pci_init(struct resch_irq_desc **desc_top)
 	__rdesc->sched_flag = 0;
 	__rdesc->mappings = ioremap(pci_resource_start(__dev, MMIO_BAR0), pci_resource_len(__dev, MMIO_BAR0)); 
 #if 0	
-	/* initialized tasklet  */
+	/* ialized tasklet  */
 	desc->wake_tasklet = (struct tasklet_struct*)kmalloc(sizeof(struct tasklet_struct), GFP_KERNEL);
 	tasklet_init(desc->wake_tasklet, cpu_wq_wakeup_tasklet, desc);
 #endif
@@ -457,14 +459,22 @@ void gsched_init(void)
     for (i = 0; i < gpu_count; i++)
 	gpu_device_init(&phys_ds[i], i);
 
-    RESCH_G_PRINT("Found %d physical device(s).\n-Initialize device structure.....", gpu_count);
+    RESCH_G_PRINT("Found %d physical device(s).\n-ialize device structure.....", gpu_count);
 
+
+#ifdef ALLOC_VGPU_PER_ONETASK
+    gpu_vcount = 100;
+#endif
 
     /* create virtual device  */
     /* create scheduler thread */
     for (i = 0; i< gpu_vcount; i++){
+#ifndef ALLOC_VGPU_PER_ONETASK
 	gpu_virtual_device_init(&gdev_vds[i], i, 100/gpu_vcount, &phys_ds[i/ (gpu_vcount/gpu_count) ]);
 	gsched_create_scheduler(&gdev_vds[i]);
+#else 
+	gpu_virtual_device_init(&gdev_vds[i], i, 100, NULL);
+#endif
     }
 
     for(i=0;i<GDEV_CONTEXT_MAX_COUNT;i++)
@@ -485,11 +495,11 @@ void gsched_exit(void)
 {
     int i;
     /*minmor*/
+#ifndef ALLOC_VGPU_PER_ONETASK
     for (i = 0; i< gpu_vcount; i++){
-	printk("goto destroy scheduler #%d\n",i);
 	gsched_destroy_scheduler(&gdev_vds[i]);
-	printk("end destroy scheduler #%d\n",i);
     }
+#endif
     i = 0;
     nouveau_intr_exit(resch_desc);
     /*unsetnotify*/

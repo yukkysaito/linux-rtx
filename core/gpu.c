@@ -110,28 +110,64 @@ void cpu_wq_wakeup_tasklet(unsigned long arg)
 #define PICKUP_GPU_FIFO 0x2
 #define PICKUP_GPU_ONE 0x0
 
+uint32_t vgid[4] = {0,0,0,0};
+
+static inline int gpu_virtual_device_weight_set(struct gdev_device *dev, uint32_t weight)
+{
+
+    if(dev){
+	dev->com_bw = weight;
+	dev->mem_bw = weight;
+    }
+
+}
+
+
 static uint32_t pick_up_next_gpu(uint32_t phys_id, uint32_t flag)
 {
-    uint32_t __vgid = 0;
     int i;
     int min = 99;
+    struct gdev_device *phys = &phys_ds[phys_id];
+    int __vgid = 0;
+    struct gdev_device *p;
 
-    switch (flag){
-	case PICKUP_GPU_MIN:
-	    for(i =0;i < GDEV_DEVICE_MAX_COUNT; i++){
-		if(gdev_vds[i].parent->id == phys_id)
-		    if(min>gdev_vds[i].users){
-			min = gdev_vds[i].users;
-			__vgid = i;
-		    }
-	    }
-	    break;
-	case PICKUP_GPU_FIFO:
-	    break;
-	case PICKUP_GPU_ONE:
-	    break;
 
+#ifdef ALLOC_VGPU_PER_ONETASK
+    gdev_lock(&phys->sched_com_lock);
+    while(gdev_vds[__vgid].parent != NULL)__vgid++;
+
+    gdev_vds[__vgid].parent = phys;
+    gsched_create_scheduler(&gdev_vds[__vgid]);
+
+    gdev_list_for_each(p, &phys->list_entry_com, list_entry_com) {
+	gpu_virtual_device_weight_set(p, 100/ __vgid);
     }
+    gdev_unlock(&phys->sched_com_lock);
+#else
+
+    if (!__vgid)
+	switch (flag){
+	    case PICKUP_GPU_MIN:
+		for(i =0;i < GDEV_DEVICE_MAX_COUNT; i++){
+		    if(gdev_vds[i].parent->id == phys_id)
+			if(min>gdev_vds[i].users){
+			    min = gdev_vds[i].users;
+			    __vgid = i;
+			}
+		}
+		break;
+	    case PICKUP_GPU_ONE:
+		for(i =0;i < GDEV_DEVICE_MAX_COUNT; i++){
+		    if(gdev_vds[i].parent->id == phys_id)
+			__vgid = i;
+		    break;
+		    default:
+		    __vgid = 0;
+		    break;
+
+		}
+	}
+#endif
     RESCH_G_DPRINT("RESCH select VGPU is %d\n", __vgid);
     return __vgid;
 }
@@ -142,7 +178,7 @@ int gsched_ctxcreate(unsigned long arg)
     struct rtxGhandle *h = (struct rtxGhandle*)arg;
     struct gdev_device *dev;
     struct gdev_device *phys;
-    
+
     uint32_t phys_id = h->dev_id;
     uint32_t cid;
     uint32_t vgid = 0;
@@ -163,18 +199,17 @@ int gsched_ctxcreate(unsigned long arg)
 retry:
 	gdev_lock(&phys->global_lock);
 	if(phys->users > GDEV_CONTEXT_MAX_COUNT ){/*GDEV_CONTEXT_LIMIT Check*/
-		gdev_unlock(&phys->global_lock);
-		schedule_timeout(5);
-		goto retry;
+	    gdev_unlock(&phys->global_lock);
+	    schedule_timeout(5);
+	    goto retry;
 	}
 	phys->users++;
 	gdev_unlock(&phys->global_lock);
     }
     dev->users++;
-    
+
     RESCH_G_PRINT("Opened RESCH_G, CTX#%d, GDEV=0x%lx\n",cid,dev);
     struct gdev_sched_entity *se = gdev_sched_entity_create(dev, cid);
-    
 }
 
 int gsched_launch(unsigned long arg)
@@ -192,7 +227,7 @@ int gsched_sync(unsigned long arg)
     struct gdev_sched_entity *se = sched_entity_ptr[h->cid];
 
 #ifdef ENABLE_RESÇH_INTERRUPT
-   // cpu_wq_sleep(se);
+    // cpu_wq_sleep(se);
 #else
     struct gdev_device *gdev = &gdev_vds[h->vdev_id];
     wake_up_process(gdev->sched_com_thread);
@@ -209,6 +244,7 @@ int gsched_close(unsigned long arg)
     gdev_sched_entity_destroy(se);
     sched_entity_ptr[h->cid] = NULL;
 
+
     if(phys){
 retry:
 	gdev_lock(&phys->global_lock);
@@ -216,36 +252,42 @@ retry:
 	gdev_unlock(&phys->global_lock);
     }
     dev->users--;
+
+#ifdef ALLOC_VGPU_PER_ONETASK
+    gsched_destroy_scheduler(dev);
+    gpu_virtual_device_init(dev, 0,0,NULL);
+#endif
 }
+
 
 /**
  * create a new scheduling entity.
  */
 struct gdev_sched_entity* gdev_sched_entity_create(struct gdev_device *gdev, uint32_t cid)
 {
-	struct gdev_sched_entity *se;
-/*
-	if (!(se= gdev_sched_entity_alloc(sizeof(*se))))
-		return NULL;
-*/
-	se = (struct gdev_sched_entity*)kmalloc(sizeof(*se),GFP_KERNEL);
+    struct gdev_sched_entity *se;
+    /*
+       if (!(se= gdev_sched_entity_alloc(sizeof(*se))))
+       return NULL;
+       */
+    se = (struct gdev_sched_entity*)kmalloc(sizeof(*se),GFP_KERNEL);
 
-	/* set up the scheduling entity. */
-	se->gdev = gdev;
-	se->task = current;
-	se->ctx = cid;
-	se->prio = 0;
-	se->rt_prio = 0;
-	se->launch_instances = 0;
-	se->memcpy_instances = 0;
-	gdev_list_init(&se->list_entry_com, (void*)se);
-	gdev_list_init(&se->list_entry_mem, (void*)se);
-	gdev_time_us(&se->last_tick_com, 0);
-	gdev_time_us(&se->last_tick_mem, 0);
-	se->wait_cond =0;
-/*XXX*/
-	sched_entity_ptr[cid] = se;
-	return se;
+    /* set up the scheduling entity. */
+    se->gdev = gdev;
+    se->task = current;
+    se->ctx = cid;
+    se->prio = 0;
+    se->rt_prio = 0;
+    se->launch_instances = 0;
+    se->memcpy_instances = 0;
+    gdev_list_init(&se->list_entry_com, (void*)se);
+    gdev_list_init(&se->list_entry_mem, (void*)se);
+    gdev_time_us(&se->last_tick_com, 0);
+    gdev_time_us(&se->last_tick_mem, 0);
+    se->wait_cond =0;
+    /*XXX*/
+    sched_entity_ptr[cid] = se;
+    return se;
 }
 
 /**
@@ -253,61 +295,61 @@ struct gdev_sched_entity* gdev_sched_entity_create(struct gdev_device *gdev, uin
  */
 void gdev_sched_entity_destroy(struct gdev_sched_entity *se)
 {
-	kfree(se);
+    kfree(se);
 }
 
 /**
  * insert the scheduling entity to the priority-ordered compute list.
  * gdev->sched_com_lock must be locked.
  */
- void __gdev_enqueue_compute(struct gdev_device *gdev, struct gdev_sched_entity *se)
+void __gdev_enqueue_compute(struct gdev_device *gdev, struct gdev_sched_entity *se)
 {
-	struct gdev_sched_entity *p;
+    struct gdev_sched_entity *p;
 
-	gdev_list_for_each (p, &gdev->sched_com_list, list_entry_com) {
-		if (se->prio > p->prio) {
-			gdev_list_add_prev(&se->list_entry_com, &p->list_entry_com);
-			break;
-		}
+    gdev_list_for_each (p, &gdev->sched_com_list, list_entry_com) {
+	if (se->prio > p->prio) {
+	    gdev_list_add_prev(&se->list_entry_com, &p->list_entry_com);
+	    break;
 	}
-	if (gdev_list_empty(&se->list_entry_com))
-		gdev_list_add_tail(&se->list_entry_com, &gdev->sched_com_list);
+    }
+    if (gdev_list_empty(&se->list_entry_com))
+	gdev_list_add_tail(&se->list_entry_com, &gdev->sched_com_list);
 }
 
 /**
  * delete the scheduling entity from the priority-ordered compute list.
  * gdev->sched_com_lock must be locked.
  */
- void __gdev_dequeue_compute(struct gdev_sched_entity *se)
+void __gdev_dequeue_compute(struct gdev_sched_entity *se)
 {
-	gdev_list_del(&se->list_entry_com);
+    gdev_list_del(&se->list_entry_com);
 }
 
 /**
  * insert the scheduling entity to the priority-ordered memory list.
  * gdev->sched_mem_lock must be locked.
  */
- void __gdev_enqueue_memory(struct gdev_device *gdev, struct gdev_sched_entity *se)
+void __gdev_enqueue_memory(struct gdev_device *gdev, struct gdev_sched_entity *se)
 {
-	struct gdev_sched_entity *p;
+    struct gdev_sched_entity *p;
 
-	gdev_list_for_each (p, &gdev->sched_mem_list, list_entry_mem) {
-		if (se->prio > p->prio) {
-			gdev_list_add_prev(&se->list_entry_mem, &p->list_entry_mem);
-			break;
-		}
+    gdev_list_for_each (p, &gdev->sched_mem_list, list_entry_mem) {
+	if (se->prio > p->prio) {
+	    gdev_list_add_prev(&se->list_entry_mem, &p->list_entry_mem);
+	    break;
 	}
-	if (gdev_list_empty(&se->list_entry_mem))
-		gdev_list_add_tail(&se->list_entry_mem, &gdev->sched_mem_list);
+    }
+    if (gdev_list_empty(&se->list_entry_mem))
+	gdev_list_add_tail(&se->list_entry_mem, &gdev->sched_mem_list);
 }
 
 /**
  * delete the scheduling entity from the priority-ordered memory list.
  * gdev->sched_mem_lock must be locked.
  */
- void __gdev_dequeue_memory(struct gdev_sched_entity *se)
+void __gdev_dequeue_memory(struct gdev_sched_entity *se)
 {
-	gdev_list_del(&se->list_entry_mem);
+    gdev_list_del(&se->list_entry_mem);
 }
 
 

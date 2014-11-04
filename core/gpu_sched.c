@@ -69,9 +69,9 @@ resched:
 		   will awaken it upon completions of their compute launches. */
 		
 		se->task = current; 
-		printk("[ctx#%d]goto sleep! sleep task is 0x%lx\n", se->ctx, se->task);
+		
+		RESCH_G_PRINT("Go to Sleep ctx#%d\n", se->ctx);
 		gdev_sched_sleep(se);
-		printk("[ctx#%d]out of sleep!\n",se->ctx);
 
 		goto resched;
 	}

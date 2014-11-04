@@ -13,7 +13,8 @@
 #include "gdev_list.h"
 
 
-/**/
+/*CONFIGURATION*/
+//#define ALLOC_VGPU_PER_ONETASK
 #define RESCH_GPU_DEBUG_PRINT
 
 #define MAX 25
