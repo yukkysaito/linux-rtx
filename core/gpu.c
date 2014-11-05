@@ -7,13 +7,12 @@
 #include <linux/fs.h>
 #include <asm/uaccess.h>
 
-
 #include <linux/irq.h>
 #include <linux/signal.h>
 #include <linux/kthread.h>
 
 #define GPU_VSCHED_BAND
-#define GPU_VSCHED_NULL
+//#define GPU_VSCHED_NULL
 
 #ifdef GPU_VSCHED_BAND
 #include "gpu_vsched_band.c"
@@ -114,14 +113,11 @@ uint32_t vgid[4] = {0,0,0,0};
 
 static inline int gpu_virtual_device_weight_set(struct gdev_device *dev, uint32_t weight)
 {
-
     if(dev){
 	dev->com_bw = weight;
 	dev->mem_bw = weight;
     }
-
 }
-
 
 static uint32_t pick_up_next_gpu(uint32_t phys_id, uint32_t flag)
 {
@@ -130,7 +126,6 @@ static uint32_t pick_up_next_gpu(uint32_t phys_id, uint32_t flag)
     struct gdev_device *phys = &phys_ds[phys_id];
     int __vgid = 0;
     struct gdev_device *p;
-
 
 #ifdef ALLOC_VGPU_PER_ONETASK
     gdev_lock(&phys->sched_com_lock);
@@ -156,14 +151,17 @@ static uint32_t pick_up_next_gpu(uint32_t phys_id, uint32_t flag)
 			}
 		}
 		break;
+	    
 	    case PICKUP_GPU_ONE:
 		for(i =0;i < GDEV_DEVICE_MAX_COUNT; i++){
 		    if(gdev_vds[i].parent->id == phys_id)
 			__vgid = i;
 		    break;
-		    default:
-		    __vgid = 0;
-		    break;
+		}
+		/* if can't choose vgid, "not break" */
+	    default:
+		__vgid = 0;
+		break;
 
 		}
 	}
@@ -208,7 +206,7 @@ retry:
     }
     dev->users++;
 
-    RESCH_G_PRINT("Opened RESCH_G, CTX#%d, GDEV=0x%lx\n",cid,dev);
+//    RESCH_G_DPRINT("Opened RESCH_G, CTX#%d, GDEV=0x%lx\n",cid,dev);
     struct gdev_sched_entity *se = gdev_sched_entity_create(dev, cid);
     
     return 1;
@@ -218,18 +216,17 @@ int gsched_launch(unsigned long arg)
 {
     struct rtxGhandle *h = (struct rtxGhandle*)arg;
     struct gdev_sched_entity *se = sched_entity_ptr[h->cid];
-    RESCH_G_PRINT("Launch RESCH_G, CTX#%d\n",h->cid);
+//    RESCH_G_DPRINT("Launch RESCH_G, CTX#%d\n",h->cid);
     gdev_schedule_compute(se);
 
 }
-//#define DISABLE_RESCH_INTERRUPT
 int gsched_sync(unsigned long arg)
 {
     struct rtxGhandle *h = (struct rtxGhandle*)arg;
     struct gdev_sched_entity *se = sched_entity_ptr[h->cid];
 
 #ifdef ENABLE_RESÇH_INTERRUPT
-    // cpu_wq_sleep(se);
+    cpu_wq_sleep(se);
 #else
     struct gdev_device *gdev = &gdev_vds[h->vdev_id];
     wake_up_process(gdev->sched_com_thread);
@@ -267,10 +264,7 @@ retry:
 struct gdev_sched_entity* gdev_sched_entity_create(struct gdev_device *gdev, uint32_t cid)
 {
     struct gdev_sched_entity *se;
-    /*
-       if (!(se= gdev_sched_entity_alloc(sizeof(*se))))
-       return NULL;
-       */
+    
     se = (struct gdev_sched_entity*)kmalloc(sizeof(*se),GFP_KERNEL);
 
     /* set up the scheduling entity. */
