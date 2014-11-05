@@ -1,6 +1,7 @@
 #ifndef __NVRM_FIFO_H__
 #define __NVRM_FIFO_H__
 
+#include <sched.h>
 struct nvrm_desc;
 
 #define IOREAD32(addr) *(uint32_t *)(addr)

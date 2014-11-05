@@ -175,6 +175,7 @@ static int gdev_credit_com_thread(void *data)
 	mod_timer(&timer, effective_jiffies + usecs_to_jiffies(gdev->period));
 	set_current_state(TASK_UNINTERRUPTIBLE);
 	schedule();
+
 	effective_jiffies = jiffies;
 	gdev_lock(&gdev->sched_com_lock);
 	gdev_time_stamp(&now);

@@ -103,9 +103,9 @@ void gdev_select_next_compute(struct gdev_device *gdev)
 
 	/* now new contexts are allowed to be created as the GPU is idling. */
 	gdev_access_end(gdev);
-
 	gdev_lock(&gdev->sched_com_lock);
 	se = (struct gdev_sched_entity *)gdev_current_com_get(gdev);
+	RESCH_G_PRINT("Launch End ctx#%d\n",se->ctx);
 	if (!se) {
 		gdev_unlock(&gdev->sched_com_lock);
 		RESCH_G_PRINT("Invalid scheduling entity on Gdev#%d\n", gdev->id);

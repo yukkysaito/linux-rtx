@@ -65,8 +65,6 @@ int rtx_gpu_init(void)
 
 int rtx_gpu_exit(void)
 {
-    if(ghandler)
-	rtx_gpu_close(ghandler);
 
     return rt_exit();
 }
@@ -75,12 +73,10 @@ static int Ghandle_init(struct rtxGhandle **arg){
 
     if (!(*arg)){
 	*arg =(struct rtxGhandle*)malloc(sizeof(struct rtxGhandle));
-
 	if (!(*arg))
 	    return -1;
 	
 	ghandler = arg;
-	(*arg)->sched_flag = GPU_SCHED_FLAG_INIT;
     }
 
     return 1;
@@ -88,11 +84,13 @@ static int Ghandle_init(struct rtxGhandle **arg){
 
 int rtx_gpu_open(struct rtxGhandle **arg, unsigned int dev_id)
 {
-    if (!Ghandle_init(arg))
+    if (!Ghandle_init(arg)){
 	return -ENOMEM;
+    }
+
 
     (*arg)->dev_id = dev_id;
-    (*arg)->sched_flag |= GPU_SCHED_FLAG_OPEN;
+    (*arg)->sched_flag = GPU_SCHED_FLAG_OPEN ;
 
     return __rtx_gpu_ioctl(GDEV_IOCTL_OPEN, (unsigned long)*arg);
 }
@@ -103,7 +101,8 @@ int rtx_gpu_launch(struct rtxGhandle **arg)
 	return -EINVAL;
 
     if ( !((*arg)->sched_flag & GPU_SCHED_FLAG_OPEN)){
-	fprintf(stderr, "You did not call rtx_gpu_open.\n");
+	fprintf(stderr, "rtx_gpu_open is not called yet\n");
+	fprintf(stderr, "rtx_gpu_open was not called\n",*arg);
 	fprintf(stderr,	"Please call rtx_gpu_open before rtx_gpu_launch!\n");
 	return -EINVAL;
     }
@@ -120,13 +119,13 @@ int rtx_gpu_sync(struct rtxGhandle **arg)
 	return -EINVAL;
 
     if ( !((*arg)->sched_flag & GPU_SCHED_FLAG_LAUNCH)){
-	fprintf(stderr, "You did not call rtx_gpu_launch.\n");
+	fprintf(stderr, "rtx_gpu_launch is not called yet\n");
 	fprintf(stderr,	"Sync must call after launch!\n");
 	return -EINVAL;
     }
 
     if ( ((*arg)->sched_flag & GPU_SCHED_FLAG_SYNCH)){
-	fprintf(stderr, "You already called rtx_gpu_sync.\n");
+	fprintf(stderr, "rtx_gpu_sync has already called\n");
 	fprintf(stderr,	"Sync is only one call per one handle.\n");
 	return -EINVAL;
     }
@@ -143,14 +142,14 @@ int rtx_gpu_close(struct rtxGhandle **arg)
 	return -EINVAL;
 
     if ( !((*arg)->sched_flag & GPU_SCHED_FLAG_OPEN)){
-	fprintf(stderr, "You did not call rtx_gpu_open\n");
+	fprintf(stderr, "rtx_gpu_open is not called yet\n");
 	return -EINVAL;
     }
 
     int ret = __rtx_gpu_ioctl(GDEV_IOCTL_CLOSE, (unsigned long)*arg);
 
     free(*arg);
-    ghandler = NULL;
+
     return ret;
 }
 

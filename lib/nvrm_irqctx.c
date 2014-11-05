@@ -27,6 +27,9 @@
 #define DEV_NVIDIA_NUM "/dev/nvidia"
 #include "nvrm_priv.h"
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
 
@@ -137,32 +140,18 @@ static void nvrm_ctx_new(struct nvrm_desc *desc)
     if (!chan)
 	goto fail_chan;
     desc->pctx = chan;
-#if 1
+   
     /* gr init */
     if (!nvrm_eng_create(chan, NVRM_FIFO_ENG_GRAPH, ccls))
 	goto fail_eng;
-#endif
-#if 0 /* fix this  */
-    /* copy init */
-    if (accls && !nvrm_eng_create(chan, NVRM_FIFO_ENG_COPY2, accls))
-	goto fail_eng;
-#endif
-#if 1
+   
     /* bring it up */
     if (nvrm_channel_activate(chan))
 	goto fail_activate;
-#endif
+
     /* FIFO command queue registers. */
     desc->fifo.regs = nvrm_channel_host_map_regs(chan);
-#if 0
-    /* fence buffer. */
-    desc->fence.bo = nvrm_bo_create(nvas, GDEV_FENCE_BUF_SIZE, 1);
-    if (!desc->fence.bo)
-	goto fail_fence_alloc;
-    desc->fence.map = nvrm_bo_host_map(desc->fence.bo);
-    desc->fence.addr = nvrm_bo_gpu_addr(desc->fence.bo);
-    desc->fence.seq = 0;
-#endif
+    
     /* interrupt buffer. */
     desc->notify.bo = nvrm_bo_create(nvas, 64, 0);
     if (!desc->notify.bo)
@@ -175,9 +164,7 @@ static void nvrm_ctx_new(struct nvrm_desc *desc)
     return;
 
 fail_notify_alloc:
-fail_desc_alloc:
     nvrm_bo_destroy(desc->fence.bo);
-fail_fence_alloc:
 fail_activate:
 fail_eng:
     nvrm_channel_destroy(chan);
@@ -187,8 +174,6 @@ fail_pb:
     nvrm_bo_destroy(desc->fifo.ib_bo);
 fail_ib:
     free(desc);
-fail_ctx:
-    return NULL;
 }
 
 static int nvrm_open_file(const char *fname) {
@@ -202,12 +187,9 @@ static int nvrm_open_file(const char *fname) {
     return res;
 }
 
-static struct nvrm_context* nvrm_open(int minor)
+static struct nvrm_context* nvrm_open(void)
 {
-    int major, max = 0;
-int i;
-    /*nvrm open*/
-    int fd;
+    int i;
     uint32_t gpu_id[NVRM_MAX_DEV];
     struct nvrm_context *ctx = calloc(sizeof *ctx, 1);
     if (!ctx)
@@ -215,22 +197,17 @@ int i;
 
     ctx->fd_ctl = nvrm_open_file(DEV_NVIDIA_CTL);
     if (ctx->fd_ctl < 0) {
-	free(ctx);
+	goto fail_dev_open;
     }
 
     if(nvrm_create_cid(ctx)){
 	goto fail_context_open; 
     }
     
-    printf("cid :0x%x\n",ctx->cid);
-   // ctx->cid -=0x10;
-
-    printf("cid :0x%x\n",ctx->cid);
     if (nvrm_mthd_context_list_devices(ctx, ctx->cid, gpu_id)) {
 	goto fail_context_open;
     }
 
-    printf("cid :0x%x\n",ctx->cid);
     for ( i = 0; i < NVRM_MAX_DEV; i++) {
 	ctx->devs[i].idx = i;
 	ctx->devs[i].ctx = ctx;
@@ -238,20 +215,15 @@ int i;
     }
     return ctx;
 fail_context_open:
-    printf("cid :0x%x\n",ctx->cid);
     close(ctx->fd_ctl);
 fail_dev_open:
     free(ctx);
     return 0;
 }
 
-static struct nvrm_device *nvrm_device_open(struct nvrm_context *ctx){
-
-    int i;
-
-
-    /* nvrm_device_open  */
-    int idx = nvrm_xlat_device(ctx, idx);
+static struct nvrm_device *nvrm_device_open(struct nvrm_context *ctx, int idx)
+{
+    idx = nvrm_xlat_device(ctx, idx);
     struct nvrm_device *dev = nvdesc->dev = &ctx->devs[idx];
 
     if(nvrm_mthd_context_enable_device(ctx, ctx->cid, dev->gpu_id)){
@@ -260,7 +232,6 @@ static struct nvrm_device *nvrm_device_open(struct nvrm_context *ctx){
     char buf[20];
    
     snprintf(buf, 20, "/dev/nvidia%d", idx);
-   printf("buf :%s\n",buf);
     dev->fd = nvrm_open_file(buf);
     if(dev->fd < 0)
 	goto out_open;
@@ -282,28 +253,25 @@ static struct nvrm_device *nvrm_device_open(struct nvrm_context *ctx){
     return dev;
 
 out_subdev:
-    printf("outsubdev\n");
     nvrm_handle_free(ctx, dev->osubdev);
     nvrm_ioctl_destroy(ctx, ctx->cid, dev->odev);
 out_dev:
-    printf("outdev\n");
     nvrm_handle_free(ctx, dev->odev);
     close(dev->fd);
 out_open:
-    printf("outopen\n");
     nvrm_mthd_context_disable_device(ctx, ctx->cid, dev->gpu_id);
 out_enable:
     return 0;
 
 }
 
-static struct nvrm_vspace *nvrm_vas_new(struct nvrm_device *dev, uint64_t size)
+static struct nvrm_vspace *nvrm_vas_new(struct nvrm_device *dev)
 {
     struct nvrm_vspace *nvas = calloc(sizeof *nvas, 1);
     uint64_t limit = 0;
 
     if(!nvas)
-	return -ENOMEM;
+	return (struct nvrm_vspace *)-ENOMEM;
 
     nvas->ctx = dev->ctx;
     nvas->dev = dev;
@@ -320,8 +288,8 @@ static struct nvrm_vspace *nvrm_vas_new(struct nvrm_device *dev, uint64_t size)
 out_dma:
     nvrm_ioctl_destroy(nvas->ctx, nvas->dev->odev, nvas->ovas);
 out_vspace:
-    nvrm_handle_free(nvas, nvas->odma);
-    nvrm_handle_free(nvas, nvas->ovas);
+    nvrm_handle_free(nvas->ctx, nvas->odma);
+    nvrm_handle_free(nvas->ctx, nvas->ovas);
     return 0;
 }
 
@@ -336,15 +304,14 @@ int rtx_nvrm_notify(int cid)
 	return -1;
     }
     uint64_t addr = nvdesc->notify.addr;
- printf("[%s]:",__func__);   
- __nvrm_begin_ring_nve4(nvdesc, SUBCH_NV_COMPUTE, 0x110, 1);
- __nvrm_out_ring(nvdesc, 0); /* SERIALIZE */
- __nvrm_begin_ring_nve4(nvdesc, SUBCH_NV_COMPUTE, 0x104, 3);
- __nvrm_out_ring(nvdesc, addr >> 32); /* NOTIFY_HIGH_ADDRESS */
- __nvrm_out_ring(nvdesc, addr); /* NOTIFY_LOW_ADDRESS */
- __nvrm_out_ring(nvdesc, 1); /* WRITTEN_AND_AWAKEN */
- __nvrm_begin_ring_nve4(nvdesc, SUBCH_NV_COMPUTE, 0x100, 1);
- __nvrm_out_ring(nvdesc, 2); /* NOP */
+    __nvrm_begin_ring_nve4(nvdesc, SUBCH_NV_COMPUTE, 0x110, 1);
+    __nvrm_out_ring(nvdesc, 0); /* SERIALIZE */
+    __nvrm_begin_ring_nve4(nvdesc, SUBCH_NV_COMPUTE, 0x104, 3);
+    __nvrm_out_ring(nvdesc, addr >> 32); /* NOTIFY_HIGH_ADDRESS */
+    __nvrm_out_ring(nvdesc, addr); /* NOTIFY_LOW_ADDRESS */
+    __nvrm_out_ring(nvdesc, 1); /* WRITTEN_AND_AWAKEN */
+    __nvrm_begin_ring_nve4(nvdesc, SUBCH_NV_COMPUTE, 0x100, 1);
+    __nvrm_out_ring(nvdesc, cid); /* NOP */
 
     __nvrm_fire_ring(nvdesc);
 #if 0
@@ -362,18 +329,18 @@ int rtx_nvrm_notify(int cid)
     return 1;
 }
 
-int rtx_nvrm_init(void)
+int rtx_nvrm_init(int dev_id)
 {
     nvdesc = (struct nvrm_desc *)malloc(sizeof(struct nvrm_desc));
     memset(nvdesc, 0, sizeof(*nvdesc));
 
     /* gopen  */
     /** gdev_dev_open  */
-    nvdesc->ctx = nvrm_open(0);
-    nvdesc->dev = nvrm_device_open(nvdesc->ctx);
+    nvdesc->ctx = nvrm_open();
+    nvdesc->dev = nvrm_device_open(nvdesc->ctx, dev_id);
 
     /* gdev_vas_new  */
-    nvdesc->nvas = nvrm_vas_new(nvdesc->dev, 0x1000000);
+    nvdesc->nvas = nvrm_vas_new(nvdesc->dev);
     nvrm_ctx_new(nvdesc);
     nvdesc->chipset = 0xe0;
     switch (nvdesc->chipset & 0x1f0){
@@ -395,7 +362,7 @@ int rtx_nvrm_init(void)
     for(i=0;i<128/4; i++)
 	__nvrm_out_ring(nvdesc, 0);
     __nvrm_fire_ring(nvdesc);
-    
+
     __nvrm_begin_ring_nve4(nvdesc, SUBCH_NV_COMPUTE, 0, 1);
     __nvrm_out_ring(nvdesc, 0xa0c0);
 

@@ -210,6 +210,8 @@ retry:
 
     RESCH_G_PRINT("Opened RESCH_G, CTX#%d, GDEV=0x%lx\n",cid,dev);
     struct gdev_sched_entity *se = gdev_sched_entity_create(dev, cid);
+    
+    return 1;
 }
 
 int gsched_launch(unsigned long arg)
@@ -243,7 +245,6 @@ int gsched_close(unsigned long arg)
 
     gdev_sched_entity_destroy(se);
     sched_entity_ptr[h->cid] = NULL;
-
 
     if(phys){
 retry:
