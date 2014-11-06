@@ -12,7 +12,7 @@
 #include <linux/kthread.h>
 
 #define GPU_VSCHED_BAND
-//#define GPU_VSCHED_NULL
+#define GPU_VSCHED_NULL
 
 #ifdef GPU_VSCHED_BAND
 #include "gpu_vsched_band.c"
@@ -140,7 +140,7 @@ static uint32_t pick_up_next_gpu(uint32_t phys_id, uint32_t flag)
     gdev_unlock(&phys->sched_com_lock);
 #else
 
-    if (!__vgid)
+    if (!__vgid){
 	switch (flag){
 	    case PICKUP_GPU_MIN:
 		for(i =0;i < GDEV_DEVICE_MAX_COUNT; i++){
@@ -151,7 +151,7 @@ static uint32_t pick_up_next_gpu(uint32_t phys_id, uint32_t flag)
 			}
 		}
 		break;
-	    
+
 	    case PICKUP_GPU_ONE:
 		for(i =0;i < GDEV_DEVICE_MAX_COUNT; i++){
 		    if(gdev_vds[i].parent->id == phys_id)
@@ -163,8 +163,8 @@ static uint32_t pick_up_next_gpu(uint32_t phys_id, uint32_t flag)
 		__vgid = 0;
 		break;
 
-		}
 	}
+    }
 #endif
     RESCH_G_DPRINT("RESCH select VGPU is %d\n", __vgid);
     return __vgid;
