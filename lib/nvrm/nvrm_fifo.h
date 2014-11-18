@@ -118,7 +118,6 @@ static void resch_fifo_push(struct nvrm_desc *desc, uint64_t base, uint32_t len,
     desc->fifo.ib_put &= desc->fifo.ib_mask;
     __sync_synchronize();
     desc->dummy = desc->fifo.ib_map[0];
-
     __resch_fifo_write_reg(desc, 0x8c, desc->fifo.ib_put);
 }
 

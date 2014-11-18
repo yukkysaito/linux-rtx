@@ -11,8 +11,6 @@ cp -f ./api.h $incdir/api.h
 chmod $mode $incdir/api.h
 cp -f ./api_gpu.h $incdir/api_gpu.h
 chmod $mode $incdir/api_gpu.h
-cp -f ./resch_nvrm.h $incdir/resch_nvrm.h
-chmod $mode $incdir/resch_nvrm.h
 cp -f ./rtx.h $incdir/rtx.h
 chmod $mode $incdir/rtx.h
 

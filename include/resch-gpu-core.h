@@ -19,7 +19,7 @@
 
 #define MAX 25
 #define SCHED_YILED() yield()
-#define RESCH_G_PRINT(fmt,arg...) printk(KERN_INFO "[RESCH-G]:" fmt, ##arg)
+#define RESCH_G_PRINT(fmt,arg...) printk(KERN_INFO "[RESCH-#G]:" fmt, ##arg)
 
 #ifdef RESCH_GPU_DEBUG_PRINT
 #define RESCH_G_DPRINT(fmt,arg...) printk(KERN_INFO "[RESCH-G]:" fmt, ##arg)
@@ -51,20 +51,23 @@
 /**
   50  * virtual device period/threshold.
   51  */
-#define GDEV_PERIOD_DEFAULT 300000 /* microseconds */
+#define GDEV_PERIOD_DEFAULT 1000000 /* microseconds */
 #define GDEV_CREDIT_INACTIVE_THRESHOLD GDEV_PERIOD_DEFAULT
-#define GDEV_UPDATE_INTERVAL 1000000
+#define GDEV_UPDATE_INTERVAL 1000000009
 
 /**
   57  * scheduling properties.
   58  */
-#define GDEV_INSTANCES_LIMIT 32
+//#define GDEV_INSTANCES_LIMIT 32
+#define GDEV_INSTANCES_LIMIT 1
 
 
 #define GDEV_IOCTL_CTX_CREATE 201
 #define GDEV_IOCTL_LAUNCH 202
 #define GDEV_IOCTL_SYNC 203
 #define GDEV_IOCTL_CLOSE 204
+
+#define GDEV_IOCTL_NOTIFY 205
 
 //time function
 //
@@ -392,6 +395,7 @@ struct gdev_device {
     gdev_lock_t global_lock;
     gdev_mutex_t shm_mutex;
     //gdev_mem_t *swap; /* reserved swap memory space */
+    struct tasklet_struct *wakeup_tasklet_t;
 };
 
 
@@ -434,7 +438,8 @@ struct gdev_sched_entity {
     wait_queue_head_t *wqueue;
     int wait_cond;
     int64_t wait_time;
-
+    atomic_t launch_count;
+    int loop_count
 };
 
 

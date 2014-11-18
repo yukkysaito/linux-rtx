@@ -1,6 +1,6 @@
 TARGET	= libresch
 TARGET_GPU = libresch_gpu
-NVRM_OBJS = nvrm_ioctl.o nvrm_submthd.o nvrm_irqctx.o
+NVRM_OBJS = nvrm/nvrm_ioctl.o nvrm/nvrm_submthd.o nvrm/nvrm_irqctx.o
 INCDIR	= ../include/
 CFLAGS	= -W -Wall -g -O2 -s -pipe
 
@@ -20,6 +20,7 @@ all: $(TARGET).o $(TARGET_GPU).o $(NVRM_OBJS)
 clean:
 	rm -f $(TARGET).o $(TARGET).a $(TARGET).so* *~
 	rm -f $(TARGET_GPU).o $(TARGET_GPU).a $(TARGET_GPU).so* *~
+	rm -f $(NVRM_OBJS) 
 
 .PHONY: install
 install:

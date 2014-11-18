@@ -3,22 +3,20 @@
  * 	
  */
 
-#include <fcntl.h>
-#include <signal.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <errno.h>
-#include <sys/ioctl.h>
-#include <sys/time.h>
-#include <sys/unistd.h>
-#include <resch-api.h>
-#include "api.h"
 #include "api_gpu.h"
+#include "api.h"
+#include <resch-api.h>
+#include <resch-config.h>
+#include <linux/sched.h>
 
 #define discard_arg(arg)	asm("" : : "r"(arg))
 
 struct rtxGhandle **ghandler= NULL;
+
+pid_t gettid(void)
+{
+        return syscall(SYS_gettid);
+}
 
 /**
  * internal function for gpu scheduler core, using ioctl() system call.
@@ -84,6 +82,7 @@ static int Ghandle_init(struct rtxGhandle **arg){
 
 int rtx_gpu_open(struct rtxGhandle **arg, unsigned int dev_id)
 {
+    int ret;
     if (!Ghandle_init(arg)){
 	return -ENOMEM;
     }
@@ -92,11 +91,21 @@ int rtx_gpu_open(struct rtxGhandle **arg, unsigned int dev_id)
     (*arg)->dev_id = dev_id;
     (*arg)->sched_flag = GPU_SCHED_FLAG_OPEN ;
 
-    return __rtx_gpu_ioctl(GDEV_IOCTL_OPEN, (unsigned long)*arg);
+    if (! (ret = __rtx_gpu_ioctl(GDEV_IOCTL_OPEN, (unsigned long)*arg))){
+    	return -ENODEV;
+    }
+	
+#ifdef USE_NVIDIA_DRIVER
+    return rtx_nvrm_init(arg, dev_id);
+#else
+    return 1;
+#endif
+
 }
 
 int rtx_gpu_launch(struct rtxGhandle **arg)
 {
+    int ret;
     if ( !(*arg) )
 	return -EINVAL;
 
@@ -110,7 +119,29 @@ int rtx_gpu_launch(struct rtxGhandle **arg)
     (*arg)->sched_flag &= ~GPU_SCHED_FLAG_SYNCH;
     (*arg)->sched_flag |= GPU_SCHED_FLAG_LAUNCH;
 
-    return __rtx_gpu_ioctl(GDEV_IOCTL_LAUNCH, (unsigned long)*arg);
+
+    printf("[%s:tid:%d]Ctx#%d_Launch in\n", __func__, gettid(),(*arg)->cid);
+    // return __rtx_gpu_ioctl(GDEV_IOCTL_LAUNCH, (unsigned long)*arg);
+    ret = __rtx_gpu_ioctl(GDEV_IOCTL_LAUNCH, (unsigned long)*arg);
+    printf("[%s:tid:%d]Ctx#%d_Launch go@@@\n", __func__, gettid(),(*arg)->cid);
+    return ret;
+}
+
+int rtx_gpu_notify(struct rtxGhandle **arg, int flag)
+{
+    int ret;
+    if ( !(*arg) )
+	return -EINVAL;
+    printf("[%s:tid:%d]Ctx#%d Notify IN++++\n", __func__, gettid(),(*arg)->cid);
+ 
+    if(!(ret = __rtx_gpu_ioctl(GDEV_IOCTL_NOTIFY, (unsigned long)*arg)))
+	return ret;
+
+#ifdef USE_NVIDIA_DRIVER
+    return rtx_nvrm_notify(arg);
+#else
+    return ret;
+#endif
 }
 
 int rtx_gpu_sync(struct rtxGhandle **arg)

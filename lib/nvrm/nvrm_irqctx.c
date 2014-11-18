@@ -32,7 +32,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
-
+#include "../api_gpu.h"
 
 #define GDEV_FENCE_BUF_SIZE 0x10000
 
@@ -89,7 +89,6 @@ void *pctx;
 };
 
 #include "nvrm_fifo.h"
-struct nvrm_desc *nvdesc;
 
 static void nvrm_ctx_new(struct nvrm_desc *desc)
 {
@@ -153,7 +152,7 @@ static void nvrm_ctx_new(struct nvrm_desc *desc)
     desc->fifo.regs = nvrm_channel_host_map_regs(chan);
     
     /* interrupt buffer. */
-    desc->notify.bo = nvrm_bo_create(nvas, 64, 0);
+    desc->notify.bo = nvrm_bo_create(nvas, 256,0);//64, 0);
     if (!desc->notify.bo)
 	goto fail_notify_alloc;
     desc->notify.addr = nvrm_bo_gpu_addr(desc->notify.bo);
@@ -224,7 +223,7 @@ fail_dev_open:
 static struct nvrm_device *nvrm_device_open(struct nvrm_context *ctx, int idx)
 {
     idx = nvrm_xlat_device(ctx, idx);
-    struct nvrm_device *dev = nvdesc->dev = &ctx->devs[idx];
+    struct nvrm_device *dev = &ctx->devs[idx];
 
     if(nvrm_mthd_context_enable_device(ctx, ctx->cid, dev->gpu_id)){
 	goto out_enable;
@@ -297,12 +296,17 @@ out_vspace:
  * API 
  * */
 
-int rtx_nvrm_notify(int cid)
+int rtx_nvrm_notify(struct rtxGhandle **arg)
 {
+    struct rtxGhandle *handle = *arg;
+    struct nvrm_desc *nvdesc = handle->nvdesc;
+    int cid = handle->cid;
+
     if(!nvdesc){
 	fprintf(stderr,"Don't initialized nvrm.\n Please call initizalize function\n");
 	return -1;
     }
+
     uint64_t addr = nvdesc->notify.addr;
     __nvrm_begin_ring_nve4(nvdesc, SUBCH_NV_COMPUTE, 0x110, 1);
     __nvrm_out_ring(nvdesc, 0); /* SERIALIZE */
@@ -314,6 +318,7 @@ int rtx_nvrm_notify(int cid)
     __nvrm_out_ring(nvdesc, cid); /* NOP */
 
     __nvrm_fire_ring(nvdesc);
+
 #if 0
     nvdesc->begin_ring(nvdesc, SUBCH_NV_COMPUTE, 0x110, 1);
     nvdesc->out_ring(nvdesc, 0);
@@ -328,10 +333,42 @@ int rtx_nvrm_notify(int cid)
 #endif
     return 1;
 }
-
-int rtx_nvrm_init(int dev_id)
+int rtx_nvrm_close(struct rtxGhandle **arg)
 {
-    nvdesc = (struct nvrm_desc *)malloc(sizeof(struct nvrm_desc));
+    struct nvrm_desc *nvdesc = (*arg)->nvdesc;
+    struct nvrm_device *dev = nvdesc->dev;
+    struct nvrm_context *ctx = nvdesc->ctx;
+    struct nvrm_channel *chan = nvdesc->chan;
+    struct nvrm_vspace *nvas = nvdesc->nvas;
+
+    /*ctx free*/
+    nvrm_bo_destroy(nvdesc->notify.bo);
+    nvrm_channel_destroy(nvdesc->pctx);
+    nvrm_bo_destroy(nvdesc->fifo.pb_bo);
+    nvrm_bo_destroy(nvdesc->fifo.ib_bo);
+
+    /* vas free*/
+    nvrm_vspace_destroy(nvas);
+
+    /* dev_close*/
+
+    nvrm_ioctl_call(ctx, dev->osubdev, NVRM_MTHD_SUBDEVICE_UNK0146, 0, 0);
+    nvrm_ioctl_destroy(ctx, dev->odev, dev->osubdev);
+    nvrm_handle_free(ctx, dev->osubdev);
+    nvrm_ioctl_destroy(ctx, ctx->cid, dev->odev);
+    nvrm_handle_free(ctx, dev->odev);
+    close(dev->fd);
+    nvrm_mthd_context_disable_device(ctx, ctx->cid, dev->gpu_id);
+
+    close(ctx->fd_ctl);
+    free(ctx);
+
+}
+
+int rtx_nvrm_init(struct rtxGhandle **arg, int dev_id)
+{
+    struct nvrm_desc *nvdesc = (struct nvrm_desc *)malloc(sizeof(struct nvrm_desc));
+    struct rtxGhandle *handle = *arg;
     memset(nvdesc, 0, sizeof(*nvdesc));
 
     /* gopen  */
@@ -361,6 +398,7 @@ int rtx_nvrm_init(int dev_id)
     int i;
     for(i=0;i<128/4; i++)
 	__nvrm_out_ring(nvdesc, 0);
+
     __nvrm_fire_ring(nvdesc);
 
     __nvrm_begin_ring_nve4(nvdesc, SUBCH_NV_COMPUTE, 0, 1);
@@ -374,10 +412,10 @@ int rtx_nvrm_init(int dev_id)
 
     __nvrm_fire_ring(nvdesc);
 
+    handle->nvdesc = (void*)nvdesc;
     return 1;
 
 chipset_err:
     return 0;
 
 }
-

@@ -1376,7 +1376,8 @@ int nvrm_mthd_context_enable_device(struct nvrm_context *ctx, uint32_t handle, u
 int nvrm_mthd_context_disable_device(struct nvrm_context *ctx, uint32_t handle, uint32_t pciid);
 
 int nvrm_create_cid(struct nvrm_context *ctx);
-
 int nvrm_xlat_device(struct nvrm_context *ctx, int idx);
+
+
 
 #endif
