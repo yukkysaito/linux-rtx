@@ -365,7 +365,7 @@ struct gdev_sched_entity* gdev_sched_entity_create(struct gdev_device *gdev, uin
  */
 void gdev_sched_entity_destroy(struct gdev_sched_entity *se)
 {
-    //kfree(se);
+    kfree(se);
 }
 
 /**
