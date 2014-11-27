@@ -1,6 +1,11 @@
 #include <resch-gpu-core.h>
+#include <linux/sched.h>
 
+#if 0
 #define SCHED_YIELD() yield()
+#else
+#define SCHED_YIELD() 
+#endif
 
 /* increment the counter for # of contexts accessing the device. */
 void gdev_access_start(struct gdev_device *gdev)
@@ -34,7 +39,6 @@ retry:
 void gdev_access_end(struct gdev_device *gdev)
 {
 	struct gdev_device *phys = gdev_phys_get(gdev);
-
 	if (phys) {
 		gdev_lock(&phys->global_lock);
 		phys->accessed--;
@@ -48,6 +52,8 @@ void gdev_access_end(struct gdev_device *gdev)
 }
 
 
+
+int all_count = 0;
 /**
  * schedule compute calls.
  */
@@ -58,12 +64,12 @@ void gdev_schedule_compute(struct gdev_sched_entity *se)
 resched:
 	/* algorithm-specific virtual device scheduler. */
 	gdev_vsched->schedule_compute(se);
-
+	
 	/* local compute scheduler. */
 	gdev_lock(&gdev->sched_com_lock);
 	if ((gdev_current_com_get(gdev) && gdev_current_com_get(gdev) != se) || se->launch_instances >= GDEV_INSTANCES_LIMIT) {
 		/* enqueue the scheduling entity to the compute queue. */
-		__gdev_enqueue_compute(gdev, se);
+	    __gdev_enqueue_compute(gdev, se);
 		gdev_unlock(&gdev->sched_com_lock);
 		/* now the corresponding task will be suspended until some other tasks
 		   will awaken it upon completions of their compute launches. */
@@ -85,10 +91,12 @@ resched:
 		gdev_current_com_set(gdev, (void*)se);
 		gdev_unlock(&gdev->sched_com_lock);
 	}
-	RESCH_G_PRINT("Go to Launch ctx#%d \n",se->ctx);
+	
 	/* this function call will block any new contexts to be created during
 	   the busy period on the GPU. */
 	gdev_access_start(gdev);
+
+	RESCH_G_PRINT("Go to Launch ctx#%d\n",se->ctx);
 }
 
 /**
@@ -100,15 +108,15 @@ void gdev_select_next_compute(struct gdev_device *gdev)
 	struct gdev_sched_entity *se;
 	struct gdev_device *next;
 	struct gdev_time now, exec;
-
+	int old_instance = 0;
+	
 	/* now new contexts are allowed to be created as the GPU is idling. */
 	gdev_access_end(gdev);
 	gdev_lock(&gdev->sched_com_lock);
 	se = (struct gdev_sched_entity *)gdev_current_com_get(gdev);
-	RESCH_G_PRINT("Launch End ctx#%d\n",se->ctx);
 	if (!se) {
 		gdev_unlock(&gdev->sched_com_lock);
-		RESCH_G_PRINT("Invalid scheduling entity on Gdev#%d\n", gdev->id);
+		RESCH_G_PRINT("Invalid scheduling entity on Gdev#%d:0x%lx\n", gdev->id,gdev);
 		return;
 	}
 
@@ -116,7 +124,9 @@ void gdev_select_next_compute(struct gdev_device *gdev)
 	gdev_time_stamp(&now);
 	/* aquire the execution time. */
 	gdev_time_sub(&exec, &now, &se->last_tick_com);
+	
 	se->launch_instances--;
+	
 	if (se->launch_instances == 0) {
 		/* account for the credit. */
 		gdev_time_sub(&gdev->credit_com, &gdev->credit_com, &exec);
@@ -127,6 +137,9 @@ void gdev_select_next_compute(struct gdev_device *gdev)
 		   now don't reference the previous entity by se. */
 		se = gdev_list_container(gdev_list_head(&gdev->sched_com_list));
 		
+		if(se)
+		    old_instance   = se->launch_instances;
+		   
 		/* setting the next entity here prevents lower-priority contexts 
 		   arriving in gdev_schedule_compute() from being dispatched onto
 		   the device. note that se = NULL could happen. */
@@ -135,13 +148,24 @@ void gdev_select_next_compute(struct gdev_device *gdev)
 
 		/* select the next device to be scheduled. */
 		next = gdev_vsched->select_next_compute(gdev);
-		if (!next)
-			return;
+	
+		if (!next){
+		    return;
+		}
 
 		gdev_lock(&next->sched_com_lock);
 		/* if the virtual device needs to be switched, change the next
 		   scheduling entity to be scheduled also needs to be changed. */
 		if (next != gdev) {
+		        if ( se ){
+			    if(old_instance < se->launch_instances)
+				se->launch_instances--;
+			}else{
+			    se = gdev_current_com_get(gdev);
+			    if(se){
+				se->launch_instances--;
+			    }
+			}
 		    	gdev_current_com_set( gdev, NULL);
 			se = gdev_list_container(gdev_list_head(&next->sched_com_list));
 		}
@@ -159,10 +183,11 @@ void gdev_select_next_compute(struct gdev_device *gdev)
 
 		}
 		else
-			gdev_unlock(&next->sched_com_lock);
+		    gdev_unlock(&next->sched_com_lock);
 	}
-	else
+	else{
 	    gdev_unlock(&gdev->sched_com_lock);
+	}
 }
 
 /**
@@ -198,7 +223,7 @@ resched:
 
 		/* now the corresponding task will be suspended until some other tasks
 		   will awaken it upon completions of their memory transfers. */
-		gdev_sched_sleep();
+		gdev_sched_sleep(se);
 
 		goto resched;
 	}
