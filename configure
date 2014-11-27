@@ -95,6 +95,19 @@ else
 echo 'Checking for debug print configuration... no'
 fi
 
+# detect the gpu driver for gpu scheduling
+if [ ! $(lsmod | grep nvidia | wc -l) -eq 0 ] ; then
+    driver="NVIDIA"
+elif [ ! $(lsmod | grep nouveau | wc -l) -eq 0 ] ; then
+    driver="NOUVEAU"
+else
+    echo "GPU Device driver not found"
+fi
+
+cat >> $config << EOF
+#define USE_${driver}_DRIVER
+EOF
+
 # footer.
 cat >> $config << EOF
 
