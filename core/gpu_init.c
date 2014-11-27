@@ -5,7 +5,7 @@
 #include <linux/pci.h>
 #include <linux/kthread.h>
 #include <linux/spinlock.h>
-
+#include <linux/sched.h>
 #include <asm/io.h>
 
 /* interrupt  */
@@ -21,9 +21,17 @@
 #define NVDEV_ENGINE_COPY1_INTR   0x40
 #define NVDEV_ENGINE_COPY2_INTR   0x80
 
-#define na_rd32(addr,offset) ioread32(addr+offset)
-#define na_rd32_native(addr,offset) ioread32be(addr+offset)
-#define na_wr32(addr,offset, value) iowrite32(addr+offset, value)
+#define nv_rd32(addr,offset) ioread32(addr+offset)
+#define nv_rd32_native(addr,offset) ioread32be(addr+offset)
+
+#ifdef RESCH_GPU_DEBUG_PRINT
+#define nv_wr32(addr,offset, value) do{ \
+    printk("[%s]addr:0x%lx,offset:0x%lx\n",__func__,addr,offset);   \
+    iowrite32(addr+offset, value); \
+}while(0)
+#else
+#define nv_wr32(addr,offset, value) iowrite32(addr+offset, value);
+#endif
 
 struct gdev_device gdev_vds[GDEV_DEVICE_MAX_COUNT];
 struct gdev_device phys_ds[GDEV_DEVICE_MAX_COUNT];
@@ -38,6 +46,10 @@ struct irq_num {
     int num;
     char dev_name[30];
 };
+
+struct gdev_list list_entry_irq_head;
+
+extern unsigned long cid_bitmap[100];
 
 const struct irq_num nvc0_irq_num[] ={
     {0x04000000, "ENGINE_DISP" },  /* DISP first, so pageflip timestamps wo    rk. */
@@ -65,6 +77,17 @@ const struct irq_num nvc0_irq_num[] ={
 };
 
 
+void sched_thread_wakeup_tasklet(unsigned long arg)
+{
+    struct gdev_device *gdev = (struct gdev_device *)arg;
+
+    if(gdev->sched_com_thread)
+	if(!wake_up_process(gdev->sched_com_thread)) {
+	    schedule_timeout_interruptible(1);
+	    wake_up_process(gdev->sched_com_thread);
+	}
+}
+
 irqreturn_t gsched_intr(int irq, void *arg)
 {
     struct resch_irq_desc *__desc = (struct resch_irq_desc*)arg;
@@ -74,51 +97,79 @@ irqreturn_t gsched_intr(int irq, void *arg)
     struct gdev_sched_entity *se;
     int i=0;
     static int count=0;
+int print_stat = 0;
 
-    intr = na_rd32(priv, 0x00100);
-#if 0 /* DEBUG_PRINT */
-    if(intr != 0x100000 && intr != 0x1000000){
-	do{
-	    printk("[%d:%03x]iRQ! addr:0x%lx, cid:0x%lx, intr:0x%lx(%s)\n",
-		    if(nvc0_irq_num[i].num & intr)
-		    __desc->irq_num,
-		    count,
-		    addr,
-		    cid,
-		    intr,
-		    nvc0_irq_num[i].dev_name);
+    atomic_inc(&__desc->intr_flag);
 
-	}while(nvc0_irq_num[i++].num);
+    intr = nv_rd32(priv, 0x00100);
+    print_stat = nv_rd32(priv, 0x00100);
+
+#if 0 /*for detailed debugging*/
+    if(intr  != 0x100000)
+    {   printk("[%s]:0x%lx(",__func__,print_stat);
+    while(print_stat){
+	if(print_stat & nvc0_irq_num[i].num){
+	    print_stat &= ~nvc0_irq_num[i].num;
+	    printk("%s ||",nvc0_irq_num[i].dev_name);
+	}
+	i++;
     }
-    count = (count + 1) % 0xfff;
+    printk(")\n");
+}
 #endif
-
+retry:
     if (intr & NVDEV_ENGINE_GR_INTR){
-	stat = na_rd32(priv, 0x400100);
+	stat = nv_rd32(priv, 0x400100);
 	if(stat & 0x3){
-	    addr = na_rd32(priv, 0x400704);
+	    addr = nv_rd32(priv, 0x400704);
 	    op = (addr & 0x00007000) >> 16;
-	    cid = na_rd32(priv, 0x400708);
+	    cid = nv_rd32(priv, 0x400708);
 	    se = sched_entity_ptr[cid];
-	    if(stat & 0x1)
-		RESCH_G_DPRINT("GDEV_COMPUTE_INTERRUPT! addr:0x%08lx,stat:0x%08lx,op:0x%08lx\n", addr,stat,op);
+	    if(stat & 0x1){
+		if( atomic_read(&se->launch_count) ){
+		    atomic_dec(&se->launch_count);
+		    RESCH_G_DPRINT("GDEV_COMPUTE_INTERRUPT! addr:0x%08lx,stat:0x%08lx,cid:0x%08lx\n", addr,stat,cid);
+		    gdev_list_add_tail(&se->list_entry_irq, &list_entry_irq_head);
+
+		    if(!wake_up_process(se->gdev->sched_com_thread)){
+			tasklet_schedule(se->gdev->wakeup_tasklet_t);
+			RESCH_G_PRINT("Failed wakeup sched_com_thread\ncall wakeup_tasklet\n");
+		    }
+		
+		}else{
+		    RESCH_G_DPRINT("INTERRUPT_DUPLICATE!!!!!, ctx#%d\n",cid);
+		    if( cid != nv_rd32(priv, 0x400708))
+			goto retry;
+		}
+	    }
 	    if(stat & 0x2){
-		RESCH_G_DPRINT("NVRM_COMPUTE_INTERRUPT! addr:0x%08lx,stat:0x%08lx,op:0x%08lx\n", addr,stat,op);
+		RESCH_G_DPRINT("NVRM_COMPUTE_INTERRUPT! addr:0x%08lx,stat:0x%08lx,cid:0x%08lx\n", addr,stat,cid);
 	    }
 
-#ifdef ENABLE_RESCH_INTERRUPT
-	    // wake_up_process(se->gdev->sched_com_thread);
-#endif
 	}
     }
 
 #endif
+	
+    print_stat = nv_rd32(priv,0x100);
+    if(intr != print_stat){
+	RESCH_G_DPRINT("[%s]: not equal intr stat! 0x%lx\n",__func__,print_stat);
+	intr = nv_rd32(priv,0x100);
+    	goto retry;
+    }
     return __desc->gpu_driver_handler(__desc->irq_num, __desc->dev_id_orig);
+  
+
 }
+
+extern spinlock_t reschg_global_spinlock;
 
 static int gdev_sched_com_thread(void *data)
 {
     struct gdev_device *gdev = (struct gdev_device*)data;
+    struct gdev_sched_entity *se = NULL;
+    struct gdev_device *phys = gdev->parent;
+	static int count = 0;
 
     RESCH_G_PRINT("RESCH_G#%d-%d compute scheduler runnning\n", gdev->parent?gdev->parent->id:0,gdev->id);
     gdev->sched_com_thread = current;
@@ -126,11 +177,37 @@ static int gdev_sched_com_thread(void *data)
     while (!kthread_should_stop()) {
 	set_current_state(TASK_UNINTERRUPTIBLE);
 	schedule();
+
+/* wakeup sleeping task */
+	se = gdev_list_container(gdev_list_head(&list_entry_irq_head));
+retry_get_list:
+	if(se){
+	    if( se->gdev != gdev){
+		se = gdev_list_container(se->list_entry_irq.next);
+	    	goto retry_get_list;
+	    }
+
+	    gdev_list_del(&se->list_entry_irq);
+	    spin_lock( &reschg_global_spinlock );
+	    if(se->wait_cond==2){
+		RESCH_G_DPRINT("[%s:%d]: compute ctx#%d wakeup \n",__func__,current->pid,se->ctx);
+		spin_unlock( &reschg_global_spinlock );
+		if(se->task){
+		    gdev_sched_wakeup(se);
+		}
+	    }else{
+		spin_unlock( &reschg_global_spinlock );
+	    }
+	    se->wait_cond = 1;
+	}
+/**/
+
 	if (gdev->users)
+	{
 	    gdev_select_next_compute(gdev);
+	}
     }
     return 0;
-
 }
 static int gdev_sched_mem_thread(void *data)
 {
@@ -155,12 +232,17 @@ static void gdev_credit_handler(unsigned long data)
     wake_up_process(p);
 }
 
+
 static int gdev_credit_com_thread(void *data)
 {
     struct gdev_device *gdev = (struct gdev_device*)data;
     struct gdev_time now, last, elapse, interval;
     struct timer_list timer;
     unsigned long effective_jiffies;
+    struct task_struct *p;
+
+    static long stay_count = 0;
+    static unsigned long long stay_com;
 
     RESCH_G_PRINT("RESCH_G#%d compute reserve running\n", gdev->id);
 
@@ -169,14 +251,15 @@ static int gdev_credit_com_thread(void *data)
     gdev_time_us(&interval, GDEV_UPDATE_INTERVAL);
     gdev_time_stamp(&last);
     effective_jiffies = jiffies;
-
     while (!kthread_should_stop()) {
+	
 	gdev_replenish_credit_compute(gdev);
 	mod_timer(&timer, effective_jiffies + usecs_to_jiffies(gdev->period));
 	set_current_state(TASK_UNINTERRUPTIBLE);
 	schedule();
 
 	effective_jiffies = jiffies;
+	
 	gdev_lock(&gdev->sched_com_lock);
 	gdev_time_stamp(&now);
 	gdev_time_sub(&elapse, &now, &last);
@@ -245,6 +328,27 @@ static int gdev_credit_mem_thread(void *data)
     return 0;
 }
 
+void gsched_intr_print(void *data){
+
+    int old_cid=0, cid;
+    int intr;
+    struct resch_irq_desc *__desc = (struct resch_irq_desc*)data;
+    void *priv = __desc->mappings;
+
+    while (!kthread_should_stop()) {
+	intr = nv_rd32(priv, 0x00100);
+	if(intr & NVDEV_ENGINE_GR_INTR){
+	    cid = nv_rd32(priv, 0x400708);
+	    if(old_cid != cid){
+		old_cid = cid;
+		printk("[%s]: 0x400708: 0x%lx \n",cid);
+	    }
+
+	}
+	yield();
+    }
+}
+
 #define ENABLE_CREDIT_THREAD
 void gsched_create_scheduler(struct gdev_device *gdev)
 {
@@ -253,6 +357,7 @@ void gsched_create_scheduler(struct gdev_device *gdev)
     char name[64];
     struct gdev_device *phys = gdev->parent;
     struct sched_param sp = {.sched_priority = MAX_RT_PRIO -1 };
+
 
     /* create compute and memory scheduler threads. */
     sprintf(name, "gschedc%d", gdev->id);
@@ -272,7 +377,6 @@ void gsched_create_scheduler(struct gdev_device *gdev)
     }
 #endif
 
-#ifdef ENABLE_CREDIT_THREAD
     /* create compute and memory credit replenishment threads. */
     sprintf(name, "gcreditc%d", gdev->id);
     credit_com = kthread_create(gdev_credit_com_thread, (void*)gdev, name);
@@ -281,7 +385,7 @@ void gsched_create_scheduler(struct gdev_device *gdev)
 	wake_up_process(credit_com);
 	gdev->credit_com_thread = credit_com;
     }
-#endif
+
 #ifdef ENABLE_MEM_SCHED
     sprintf(name, "gcreditm%d", gdev->id);
     credit_mem = kthread_create(gdev_credit_mem_thread, (void*)gdev, name);
@@ -293,10 +397,10 @@ void gsched_create_scheduler(struct gdev_device *gdev)
 #endif
     /* set up virtual GPU schedulers, if required. */
     if (phys) {
-	//	gdev_lock(&phys->sched_com_lock);
+	gdev_lock(&phys->sched_com_lock);
 	gdev_list_init(&gdev->list_entry_com, (void*)gdev);
 	gdev_list_add(&gdev->list_entry_com, &phys->sched_com_list);
-	//	gdev_unlock(&phys->sched_com_lock);
+	gdev_unlock(&phys->sched_com_lock);
 	gdev_replenish_credit_compute(gdev);
 
 	gdev_lock(&phys->sched_mem_lock);
@@ -370,6 +474,10 @@ void gpu_device_init(struct gdev_device *dev, int id)
     gdev_lock_init(&dev->vas_lock);
     gdev_lock_init(&dev->global_lock);
     gdev_mutex_init(&dev->shm_mutex);
+	
+    /* ialized tasklet  */
+    dev->wakeup_tasklet_t = (struct tasklet_struct*)kmalloc(sizeof(struct tasklet_struct), GFP_KERNEL);
+    tasklet_init(dev->wakeup_tasklet_t, sched_thread_wakeup_tasklet, (unsigned long)dev);
 }
 
 
@@ -428,16 +536,15 @@ int gsched_pci_init(struct resch_irq_desc **desc_top)
 	__rdesc->gpu_driver_handler = __act->handler;
 	__rdesc->sched_flag = 0;
 	__rdesc->mappings = ioremap(pci_resource_start(__dev, MMIO_BAR0), pci_resource_len(__dev, MMIO_BAR0)); 
-#if 0	
-	/* ialized tasklet  */
-	desc->wake_tasklet = (struct tasklet_struct*)kmalloc(sizeof(struct tasklet_struct), GFP_KERNEL);
-	tasklet_init(desc->wake_tasklet, cpu_wq_wakeup_tasklet, desc);
-#endif
+	printk("%d devices remapped [0x%lx-0x%lx].sizeof:0x%lx\n",__dev->irq, pci_resource_start(__dev, MMIO_BAR0),pci_resource_end(__dev,MMIO_BAR0), pci_resource_len(__dev,MMIO_BAR0));
+	
+
 	gsched_irq_intercept_init(__rdesc);
 	gdev_lock_init(&__rdesc->release_lock);
 	desc_top[__gpu_count] = __rdesc;
 	__gpu_count++;
     }
+    atomic_set(&resch_desc[0]->intr_flag,0);
 
     return __gpu_count;
 }
@@ -460,7 +567,7 @@ void gsched_init(void)
     for (i = 0; i < gpu_count; i++)
 	gpu_device_init(&phys_ds[i], i);
 
-    RESCH_G_PRINT("Found %d physical device(s).\n-ialize device structure.....", gpu_count);
+    RESCH_G_PRINT("Found %d physical device(s).\n-Initialize device structure.....", gpu_count);
 
 
 #ifdef ALLOC_VGPU_PER_ONETASK
@@ -489,6 +596,11 @@ void gsched_init(void)
     for (i = 0; i< gpu_vcount; i++){
 	gdev_proc_minor_create(i);
     }
+    for(i=0;i<100;i++)
+	cid_bitmap[i]=0;
+
+    /* for irq list */
+    gdev_list_init(&list_entry_irq_head, NULL);
 
 }
 

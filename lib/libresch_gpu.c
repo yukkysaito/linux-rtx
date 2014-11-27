@@ -9,6 +9,8 @@
 #include <resch-config.h>
 #include <linux/sched.h>
 
+
+
 #define discard_arg(arg)	asm("" : : "r"(arg))
 
 struct rtxGhandle **ghandler= NULL;
@@ -119,11 +121,7 @@ int rtx_gpu_launch(struct rtxGhandle **arg)
     (*arg)->sched_flag &= ~GPU_SCHED_FLAG_SYNCH;
     (*arg)->sched_flag |= GPU_SCHED_FLAG_LAUNCH;
 
-
-    printf("[%s:tid:%d]Ctx#%d_Launch in\n", __func__, gettid(),(*arg)->cid);
-    // return __rtx_gpu_ioctl(GDEV_IOCTL_LAUNCH, (unsigned long)*arg);
     ret = __rtx_gpu_ioctl(GDEV_IOCTL_LAUNCH, (unsigned long)*arg);
-    printf("[%s:tid:%d]Ctx#%d_Launch go@@@\n", __func__, gettid(),(*arg)->cid);
     return ret;
 }
 
@@ -132,12 +130,16 @@ int rtx_gpu_notify(struct rtxGhandle **arg, int flag)
     int ret;
     if ( !(*arg) )
 	return -EINVAL;
-    printf("[%s:tid:%d]Ctx#%d Notify IN++++\n", __func__, gettid(),(*arg)->cid);
  
     if(!(ret = __rtx_gpu_ioctl(GDEV_IOCTL_NOTIFY, (unsigned long)*arg)))
 	return ret;
 
+
 #ifdef USE_NVIDIA_DRIVER
+    rtx_nvrm_notify(arg);
+ 	sched_yield();
+    rtx_nvrm_notify(arg);
+ 	sched_yield();
     return rtx_nvrm_notify(arg);
 #else
     return ret;
@@ -149,6 +151,7 @@ int rtx_gpu_sync(struct rtxGhandle **arg)
     if ( !(*arg) )
 	return -EINVAL;
 
+    /*
     if ( !((*arg)->sched_flag & GPU_SCHED_FLAG_LAUNCH)){
 	fprintf(stderr, "rtx_gpu_launch is not called yet\n");
 	fprintf(stderr,	"Sync must call after launch!\n");
@@ -160,6 +163,7 @@ int rtx_gpu_sync(struct rtxGhandle **arg)
 	fprintf(stderr,	"Sync is only one call per one handle.\n");
 	return -EINVAL;
     }
+*/
 
     (*arg)->sched_flag |= GPU_SCHED_FLAG_SYNCH;
     (*arg)->sched_flag &= ~GPU_SCHED_FLAG_LAUNCH;

@@ -205,6 +205,8 @@ static int resch_ioctl(struct inode *inode,
 		return gsched_sync(arg);
 	    case GDEV_IOCTL_CLOSE:
 		return gsched_close(arg);
+	    case GDEV_IOCTL_NOTIFY:
+		return gsched_notify(arg);
 	    default:
 
 		/* copy data to kernel buffer. */

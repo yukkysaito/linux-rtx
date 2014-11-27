@@ -15,14 +15,15 @@
 
 /*CONFIGURATION*/
 //#define ALLOC_VGPU_PER_ONETASK
+#ifdef DEBUG_PRINT
 #define RESCH_GPU_DEBUG_PRINT
+#endif
 
 #define MAX 25
-#define SCHED_YILED() yield()
-#define RESCH_G_PRINT(fmt,arg...) printk(KERN_INFO "[RESCH-#G]:" fmt, ##arg)
+#define RESCH_G_PRINT(fmt,arg...) printk(KERN_INFO "[RESCH-G]:" fmt, ##arg)
 
 #ifdef RESCH_GPU_DEBUG_PRINT
-#define RESCH_G_DPRINT(fmt,arg...) printk(KERN_INFO "[RESCH-G]:" fmt, ##arg)
+#define RESCH_G_DPRINT(fmt,arg...) printk(KERN_INFO "[RESCH-GD]:" fmt, ##arg)
 #else
 #define RESCH_G_DPRINT(fmt,arg...)
 #endif
@@ -429,6 +430,8 @@ struct gdev_sched_entity {
     struct gdev_list list_entry_mem; /* entry to memory scheduler list */
     struct gdev_time last_tick_com; /* last tick of compute execution */
     struct gdev_time last_tick_mem; /* last tick of memory transfer */
+    struct gdev_list list_entry_irq;
+    
     int launch_instances;
     int memcpy_instances;
     /* for sched_deadline  */
@@ -464,12 +467,15 @@ struct resch_irq_desc {
     char *gpu_driver_name;
     void *mappings;
     void *dev_id_orig;
-    irq_handler_t gpu_driver_handler;
-    irq_handler_t resch_handler;
+    irq_handler_t gpu_driver_handler; /* original driver's handler callback function pointer */
+    irq_handler_t resch_handler; /* our overlapping handler function pointer  */
+ 
+    atomic_t intr_flag;
     int sched_flag;
     spinlock_t release_lock;
     struct tasklet_struct *wake_tasklet;
 };
+
 
 struct gdev_vsched_policy {
     void (*schedule_compute)(struct gdev_sched_entity *se);

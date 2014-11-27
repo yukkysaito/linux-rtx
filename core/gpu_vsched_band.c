@@ -1,6 +1,12 @@
+#if 0
 #define SCHED_YIELD() yield()
+#else
+#define SCHED_YIELD() 
+#endif
 
 #define GDEV_VSCHED_BAND_SELECT_CHANCES 1
+
+extern struct gdev_device gdev_vds[GDEV_DEVICE_MAX_COUNT];
 
 static int __gdev_is_alone(struct gdev_device *gdev)
 {
@@ -48,6 +54,7 @@ resched:
 	if (gdev_time_lez(&gdev->credit_com) && (gdev->com_bw_used > gdev->com_bw)
 		&& !__gdev_is_alone(gdev)) {
 		gdev_lock(&phys->sched_com_lock);
+		
 		if (gdev_current_com_get(phys)== gdev) {
 			gdev_current_com_set(phys,NULL);
 			gdev_unlock(&phys->sched_com_lock);
@@ -55,6 +62,8 @@ resched:
 			__gdev_vsched_band_yield_chance();
 
 			gdev_lock(&phys->sched_com_lock);
+	
+			
 			if (gdev_current_com_get(gdev)== NULL)
 				gdev_current_com_set(phys,gdev);
 			gdev_unlock(&phys->sched_com_lock);
@@ -72,8 +81,9 @@ resched:
 		gdev_unlock_nested(&gdev->sched_com_lock);
 		gdev_unlock(&phys->sched_com_lock);
 
-		RESCH_G_PRINT("Gdev#%d Ctx#%d Sleep\n", gdev->id, se->ctx);
+		RESCH_G_DPRINT("Gdev#%d Ctx#%d Sleep\n", gdev->id, se->ctx);
 
+		se->task = current;
 		/* now the corresponding task will be suspended until some other tasks
 		   will awaken it upon completions of their compute launches. */
 		gdev_sched_sleep(se);
@@ -83,8 +93,7 @@ resched:
 	else {
 		gdev_current_com_set(phys,(void *)gdev);
 		gdev_unlock(&phys->sched_com_lock);
-
-		RESCH_G_PRINT("Gdev#%d Ctx#%d Run\n", gdev->id, se->ctx);
+		RESCH_G_DPRINT("Gdev#%d Ctx#%d is ok!\n", gdev->id, se->ctx);
 	}
 }
 
@@ -98,7 +107,7 @@ static struct gdev_device *gdev_vsched_band_select_next_compute(struct gdev_devi
 	if (!phys)
 		return gdev;
 
-	//RESCH_G_PRINT("Gdev#%d Complete\n", gdev->id);
+	RESCH_G_DPRINT("Gdev#%d Complete\n", gdev->id);
 retry:
 	gdev_lock(&phys->sched_com_lock);
 
@@ -112,12 +121,12 @@ retry:
 	    gdev_lock_nested(&next->sched_com_lock);
 		if (!gdev_list_empty(&next->sched_com_list)) {
 			gdev_unlock_nested(&next->sched_com_lock);
-			RESCH_G_PRINT("Gdev#%d Selected\n", next->id);
+			RESCH_G_DPRINT("Gdev#%d Selected\n", next->id);
 			goto device_switched;
 		}
 		gdev_unlock_nested(&next->sched_com_lock);
 	}
-	RESCH_G_PRINT("Nothing Selected\n");
+	RESCH_G_DPRINT("Nothing Selected\n");
 	next = NULL;
 device_switched:
 	gdev_current_com_set(phys, (void*)next); /* could be null */
@@ -132,7 +141,7 @@ device_switched:
 			chances--;
 			if (chances) {
 				gdev_unlock(&phys->sched_com_lock);
-				RESCH_G_PRINT("Try again\n");
+				RESCH_G_DPRINT("Try again\n");
 				goto retry;
 			}
 			else

@@ -10,6 +10,9 @@
 #include <linux/irq.h>
 #include <linux/signal.h>
 #include <linux/kthread.h>
+#include <linux/spinlock.h>
+
+#include "bitops.h"
 
 #define GPU_VSCHED_BAND
 #define GPU_VSCHED_NULL
@@ -21,17 +24,34 @@ struct gdev_vsched_policy *gdev_vsched = &gdev_vsched_band;
 #include "gpu_vsched_null.c"
 struct gdev_vsched_policy *gdev_vsched = &gdev_vsched_null;
 #endif
+DEFINE_SPINLOCK( reschg_global_spinlock );
 
 struct gdev_sched_entity* gdev_sched_entity_create(struct gdev_device *gdev, uint32_t cid);
 
-extern struct resch_irq_desc *resch_desc; 
+unsigned long cid_bitmap[100];
+extern struct resch_irq_desc **resch_desc; 
 
 struct rtxGhandle{
     uint32_t dev_id;
     uint32_t vdev_id;
     uint32_t cid;
     void *task;
+    void *nv_desc;
+    uint8_t sched_flag;
 };
+
+static inline void print_remaining_task(struct gdev_device *gdev){
+    struct gdev_sched_entity *p;
+
+    printk("=========\n");
+    printk("[gdev#%d]remaining tasks are\n",gdev->id);
+    gdev_list_for_each (p, &gdev->sched_com_list, list_entry_com) {
+    	printk("[ctx%d]",p->ctx);
+    }
+    printk("\n");
+    printk("=========\n");
+}
+
 
 static inline void dl_runtime_reverse(struct gdev_sched_entity *se)
 {
@@ -55,7 +75,6 @@ static inline void dl_runtime_reserve(struct gdev_sched_entity *se)
 #endif
 }
 
-
 void cpu_wq_sleep(struct gdev_sched_entity *se)
 {
     struct task_struct *task = se->task;
@@ -69,10 +88,10 @@ void cpu_wq_sleep(struct gdev_sched_entity *se)
 	se->wait_cond = 0xCAFE;
 	se->wait_time = sched_clock();
 	dl_runtime_reserve(se);
-	RESCH_G_PRINT("Process GOTO SLEEP Ctx#0x%lx\n",se->ctx);
+	RESCH_G_DPRINT("Process GOTO SLEEP Ctx#0x%lx\n",se->ctx);
 	wait_event(*se->wqueue, se->wait_cond);
     }else{
-	RESCH_G_PRINT("Already fisnihed Ctx#%d\n",se->ctx);
+	RESCH_G_DPRINT("Already fisnihed Ctx#%d\n",se->ctx);
 	se->wait_cond = 0x0;
     }
     spin_unlock_irq(&desc->release_lock);
@@ -89,12 +108,12 @@ void cpu_wq_wakeup(struct gdev_sched_entity *se)
     if(se->wait_cond == 0xCAFE){
 	dl_runtime_reverse(se);
 	wake_up(se->wqueue);
-	RESCH_G_PRINT("Process Finish! Wakeup Ctx#0x%lx\n",se->ctx);
+	RESCH_G_DPRINT("Process Finish! Wakeup Ctx#0x%lx\n",se->ctx);
 	kfree(se->wqueue);
 	se->wait_cond = 0x0;
     }else{
 	se->wait_cond = 0xDEADBEEF;
-	RESCH_G_PRINT("Not have sleep it!%d\n",se->ctx);
+	RESCH_G_DPRINT("Not have sleep it!%d\n",se->ctx);
     }
     spin_unlock_irq(&desc->release_lock);
 }
@@ -181,16 +200,10 @@ int gsched_ctxcreate(unsigned long arg)
     uint32_t cid;
     uint32_t vgid = 0;
 
-    vgid = pick_up_next_gpu(phys_id, PICKUP_GPU_MIN);
+    vgid = pick_up_next_gpu(phys_id, PICKUP_GPU_ONE);
 
-    /* find empty entity  */
-    for(cid = 0; cid < GDEV_CONTEXT_MAX_COUNT; cid++){
-	if(!sched_entity_ptr[cid])
-	    break;
-    }
     dev = &gdev_vds[vgid];
     phys = dev->parent;
-    h->cid = cid;
     h->vdev_id = vgid;
 
     if(phys){
@@ -198,15 +211,32 @@ retry:
 	gdev_lock(&phys->global_lock);
 	if(phys->users > GDEV_CONTEXT_MAX_COUNT ){/*GDEV_CONTEXT_LIMIT Check*/
 	    gdev_unlock(&phys->global_lock);
-	    schedule_timeout(5);
+	    schedule_timeout(500);
 	    goto retry;
 	}
 	phys->users++;
 	gdev_unlock(&phys->global_lock);
     }
     dev->users++;
+ 
+    /* find empty entity  */
+    spin_lock( &reschg_global_spinlock );
+    
+#define CID_MAP_LONG 30
+    if((cid = resch_ffz(cid_bitmap, CID_MAP_LONG)) < 0){
+	printk("failed attached Gdev sched entity.\n");
+	return 0;
+    }
+    __set_bit(cid, cid_bitmap);
 
-//    RESCH_G_DPRINT("Opened RESCH_G, CTX#%d, GDEV=0x%lx\n",cid,dev);
+    cid++; /* cid must not set zero, shifting one  */
+
+    spin_unlock( &reschg_global_spinlock );
+
+    h->cid = cid;
+
+
+    RESCH_G_DPRINT("Opened RESCH_G, CTX#%d, GDEV=0x%lx current:0x%lx\n",cid,dev,current);
     struct gdev_sched_entity *se = gdev_sched_entity_create(dev, cid);
     
     return 1;
@@ -216,21 +246,61 @@ int gsched_launch(unsigned long arg)
 {
     struct rtxGhandle *h = (struct rtxGhandle*)arg;
     struct gdev_sched_entity *se = sched_entity_ptr[h->cid];
-//    RESCH_G_DPRINT("Launch RESCH_G, CTX#%d\n",h->cid);
+    RESCH_G_DPRINT("Launch RESCH_G, CTX#%d\n",h->cid);
     gdev_schedule_compute(se);
-
 }
+#define ENABLE_RESCH_INTERRUPT
 int gsched_sync(unsigned long arg)
+{
+ static int count = 0;
+    struct rtxGhandle *h = (struct rtxGhandle*)arg;
+    struct gdev_sched_entity *se = sched_entity_ptr[h->cid];
+    struct timer_list timer;
+
+    spin_lock(&reschg_global_spinlock);
+    if(se->wait_cond == 0){
+	se->task = current;
+	se->wait_cond = 2;
+	spin_unlock(&reschg_global_spinlock);
+	RESCH_G_DPRINT("[%s[pid:%d]]: compute ctx#%d sleep in\n",__func__,current->pid, h->cid);
+	gdev_sched_sleep(se);
+
+	if(atomic_read(&resch_desc[0]->intr_flag))
+	    atomic_dec(&resch_desc[0]->intr_flag);
+
+	RESCH_G_DPRINT("[%s[pid:%d]]: compute ctx#%d sleep out\n",__func__,current->pid, h->cid);
+	spin_lock(&reschg_global_spinlock);
+	se->task = NULL;
+    }else{
+	RESCH_G_DPRINT("[%s[pid:%d]]: compute ctx#%d already happen interrupt\n",__func__,current->pid, h->cid);
+    }
+    spin_unlock(&reschg_global_spinlock);
+    se->wait_cond = 0;
+
+#ifndef ENABLE_RESCH_INTERRUPT
+    struct gdev_device *gdev = &gdev_vds[h->vdev_id];
+    wake_up_process(gdev->sched_com_thread);
+#endif
+}
+
+
+int gsched_notify(unsigned long arg)
 {
     struct rtxGhandle *h = (struct rtxGhandle*)arg;
     struct gdev_sched_entity *se = sched_entity_ptr[h->cid];
 
-#ifdef ENABLE_RESÇH_INTERRUPT
-    cpu_wq_sleep(se);
-#else
-    struct gdev_device *gdev = &gdev_vds[h->vdev_id];
-    wake_up_process(gdev->sched_com_thread);
-#endif
+
+    spin_lock( &reschg_global_spinlock );
+    if(atomic_read(&se->launch_count) < 0)
+	atomic_set(&se->launch_count, 0);
+    atomic_inc(&se->launch_count);
+    spin_unlock( &reschg_global_spinlock );
+    
+    while(atomic_read(&resch_desc[0]->intr_flag)!=0){
+	yield();
+    }
+
+    return atomic_read(&se->launch_count);
 }
 
 int gsched_close(unsigned long arg)
@@ -240,8 +310,11 @@ int gsched_close(unsigned long arg)
     struct gdev_device *dev = se->gdev;
     struct gdev_device *phys = dev->parent;
 
+    spin_lock( &reschg_global_spinlock );
     gdev_sched_entity_destroy(se);
     sched_entity_ptr[h->cid] = NULL;
+    __clear_bit(h->cid-1, cid_bitmap);
+    spin_unlock( &reschg_global_spinlock );
 
     if(phys){
 retry:
@@ -264,8 +337,8 @@ retry:
 struct gdev_sched_entity* gdev_sched_entity_create(struct gdev_device *gdev, uint32_t cid)
 {
     struct gdev_sched_entity *se;
-    
-    se = (struct gdev_sched_entity*)kmalloc(sizeof(*se),GFP_KERNEL);
+
+    se = (struct gdev_sched_entity*)kmalloc(sizeof(*se),GFP_DMA);
 
     /* set up the scheduling entity. */
     se->gdev = gdev;
@@ -277,9 +350,11 @@ struct gdev_sched_entity* gdev_sched_entity_create(struct gdev_device *gdev, uin
     se->memcpy_instances = 0;
     gdev_list_init(&se->list_entry_com, (void*)se);
     gdev_list_init(&se->list_entry_mem, (void*)se);
+    gdev_list_init(&se->list_entry_irq, (void*)se);
     gdev_time_us(&se->last_tick_com, 0);
     gdev_time_us(&se->last_tick_mem, 0);
     se->wait_cond =0;
+    atomic_set(&se->launch_count, 0);
     /*XXX*/
     sched_entity_ptr[cid] = se;
     return se;
@@ -290,7 +365,7 @@ struct gdev_sched_entity* gdev_sched_entity_create(struct gdev_device *gdev, uin
  */
 void gdev_sched_entity_destroy(struct gdev_sched_entity *se)
 {
-    kfree(se);
+    //kfree(se);
 }
 
 /**
@@ -309,6 +384,9 @@ void __gdev_enqueue_compute(struct gdev_device *gdev, struct gdev_sched_entity *
     }
     if (gdev_list_empty(&se->list_entry_com))
 	gdev_list_add_tail(&se->list_entry_com, &gdev->sched_com_list);
+#ifdef G_DEBUG
+    print_remaining_task(&gdev_vds[0]);
+#endif
 }
 
 /**
@@ -318,6 +396,9 @@ void __gdev_enqueue_compute(struct gdev_device *gdev, struct gdev_sched_entity *
 void __gdev_dequeue_compute(struct gdev_sched_entity *se)
 {
     gdev_list_del(&se->list_entry_com);
+#ifdef G_DEBUG
+    print_remaining_task(&gdev_vds[0]);
+#endif
 }
 
 /**
@@ -336,6 +417,8 @@ void __gdev_enqueue_memory(struct gdev_device *gdev, struct gdev_sched_entity *s
     }
     if (gdev_list_empty(&se->list_entry_mem))
 	gdev_list_add_tail(&se->list_entry_mem, &gdev->sched_mem_list);
+    print_remaining_task(&gdev_vds[0]);
+    print_remaining_task(&gdev_vds[1]);
 }
 
 /**
@@ -345,22 +428,28 @@ void __gdev_enqueue_memory(struct gdev_device *gdev, struct gdev_sched_entity *s
 void __gdev_dequeue_memory(struct gdev_sched_entity *se)
 {
     gdev_list_del(&se->list_entry_mem);
+    print_remaining_task(&gdev_vds[0]);
+    print_remaining_task(&gdev_vds[1]);
 }
-
 
 void gdev_sched_sleep(struct gdev_sched_entity *se)
 {
+
     struct task_struct *task = se->task;
+#if 1
 #ifdef SCHED_DEADLINE
     if(task->policy == SCHED_DEADLINE){
 	cpu_wq_sleep(se);
     }else
     {	
 #endif
-	set_current_state(TASK_UNINTERRUPTIBLE);
+#endif
+	set_current_state(TASK_INTERRUPTIBLE);
 	schedule();
+#if 1
 #ifdef SCHED_DEADLINE
     }
+#endif
 #endif
 }
 
@@ -368,6 +457,7 @@ void gdev_sched_sleep(struct gdev_sched_entity *se)
 int gdev_sched_wakeup(struct gdev_sched_entity *se)
 {
     struct task_struct *task = se->task;
+
 #ifdef SCHED_DEADLINE
     if(task->policy == SCHED_DEADLINE){
 	cpu_wq_wakeup(se);
@@ -376,8 +466,10 @@ int gdev_sched_wakeup(struct gdev_sched_entity *se)
 #endif
 	if(!wake_up_process(task)) {
 	    schedule_timeout_interruptible(1);
-	    if(!wake_up_process(task))
+	    if(!wake_up_process(task)){
+		RESCH_G_PRINT("wakeup_failed......\n");
 		return -EINVAL;
+	    }
 	}
 #ifdef SCHED_DEADLINE
     }
@@ -387,7 +479,7 @@ int gdev_sched_wakeup(struct gdev_sched_entity *se)
 
 void* gdev_current_com_get(struct gdev_device *gdev)
 {
-    return !gdev->current_com? NULL:(void*)gdev->current_com;
+    return gdev? gdev->current_com:NULL;
 }
 
 void gdev_current_com_set(struct gdev_device *gdev, void *com){
