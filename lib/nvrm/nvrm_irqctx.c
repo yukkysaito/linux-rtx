@@ -372,27 +372,27 @@ int rtx_nvrm_close(struct rtxGhandle **arg)
 static void __nvrm_init_minor_nve0(struct nvrm_desc *desc)
 {
     __nvrm_begin_ring_nve4(desc, SUBCH_NV_COMPUTE, 0, 1);
-    __nvrm_out_ring(nvdesc, 0xa0c0);
+    __nvrm_out_ring(desc, 0xa0c0);
 
     __nvrm_begin_ring_nve4(desc, SUBCH_NV_COMPUTE, 0x110, 1);
-    __nvrm_out_ring(nvdesc, 0);
+    __nvrm_out_ring(desc, 0);
 
     __nvrm_begin_ring_nve4(desc, SUBCH_NV_COMPUTE, 0x310, 1);
-    __nvrm_out_ring(nvdesc, 0x300);
+    __nvrm_out_ring(desc, 0x300);
 
-    __nvrm_fire_ring(nvdesc);
+    __nvrm_fire_ring(desc);
 
 }
 
 static void __nvrm_init_minor_nvc0(struct nvrm_desc *desc)
 {
     __nvrm_begin_ring_nvc0(desc, SUBCH_NV_COMPUTE, 0, 1);
-    __nvrm_out_ring(nvdesc, 0x90c0);
+    __nvrm_out_ring(desc, 0x90c0);
 
     __nvrm_begin_ring_nvc0(desc, SUBCH_NV_COMPUTE, 0x100, 1);
-    __nvrm_out_ring(nvdesc, 0);
+    __nvrm_out_ring(desc, 0);
 
-    __nvrm_fire_ring(nvdesc);
+    __nvrm_fire_ring(desc);
 }
 
 
