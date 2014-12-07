@@ -84,6 +84,7 @@ void *pctx;
     void (*begin_ring)(struct nvrm_desc *, int, int, int);
     void (*out_ring)(struct nvrm_desc *,uint32_t );
     void (*fire_ring)(struct nvrm_desc *);
+    void (*minor_init)(struct nvrm_desc *);
 
     uint32_t dummy;
 };
@@ -100,7 +101,7 @@ static void nvrm_ctx_new(struct nvrm_desc *desc)
     uint32_t accls = 0;
 
     nvrm_device_get_chipset(desc->dev, &chip_major, &chip_minor, 0);
-    chipset = chip_major | chip_minor;
+    desc->chipset = chipset = chip_major | chip_minor;
 
     if (chipset < 0x80)
 	cls = 0x506f, ccls = 0x50c0;
@@ -368,6 +369,33 @@ int rtx_nvrm_close(struct rtxGhandle **arg)
 
 }
 
+static void __nvrm_init_minor_nve0(struct nvrm_desc *desc)
+{
+    __nvrm_begin_ring_nve4(desc, SUBCH_NV_COMPUTE, 0, 1);
+    __nvrm_out_ring(nvdesc, 0xa0c0);
+
+    __nvrm_begin_ring_nve4(desc, SUBCH_NV_COMPUTE, 0x110, 1);
+    __nvrm_out_ring(nvdesc, 0);
+
+    __nvrm_begin_ring_nve4(desc, SUBCH_NV_COMPUTE, 0x310, 1);
+    __nvrm_out_ring(nvdesc, 0x300);
+
+    __nvrm_fire_ring(nvdesc);
+
+}
+
+static void __nvrm_init_minor_nvc0(struct nvrm_desc *desc)
+{
+    __nvrm_begin_ring_nvc0(desc, SUBCH_NV_COMPUTE, 0, 1);
+    __nvrm_out_ring(nvdesc, 0x90c0);
+
+    __nvrm_begin_ring_nvc0(desc, SUBCH_NV_COMPUTE, 0x100, 1);
+    __nvrm_out_ring(nvdesc, 0);
+
+    __nvrm_fire_ring(nvdesc);
+}
+
+
 int rtx_nvrm_init(struct rtxGhandle **arg, int dev_id)
 {
     struct nvrm_desc *nvdesc = (struct nvrm_desc *)malloc(sizeof(struct nvrm_desc));
@@ -382,14 +410,16 @@ int rtx_nvrm_init(struct rtxGhandle **arg, int dev_id)
     /* gdev_vas_new  */
     nvdesc->nvas = nvrm_vas_new(nvdesc->dev);
     nvrm_ctx_new(nvdesc);
-    nvdesc->chipset = 0xe0;
+    
     switch (nvdesc->chipset & 0x1f0){
 	case 0xc0:
 	    nvdesc->begin_ring = __nvrm_begin_ring_nvc0;
+	    nvdesc->minor_init = __nvrm_init_minor_nvc0;
 	    break;
 	case 0xe0:
 	case 0xf0:
 	    nvdesc->begin_ring = __nvrm_begin_ring_nve4;
+	    nvdesc->minor_init = __nvrm_init_minor_nve0;
 	    break;
 	default:
 	    fprintf(stderr,"Don't support your card\n");
@@ -398,22 +428,15 @@ int rtx_nvrm_init(struct rtxGhandle **arg, int dev_id)
     nvdesc->out_ring = __nvrm_out_ring;
     nvdesc->fire_ring = __nvrm_fire_ring;
 
+
     int i;
     for(i=0;i<128/4; i++)
 	__nvrm_out_ring(nvdesc, 0);
 
     __nvrm_fire_ring(nvdesc);
 
-    __nvrm_begin_ring_nve4(nvdesc, SUBCH_NV_COMPUTE, 0, 1);
-    __nvrm_out_ring(nvdesc, 0xa0c0);
+    nvdesc->minor_init(nvdesc);
 
-    __nvrm_begin_ring_nve4(nvdesc, SUBCH_NV_COMPUTE, 0x110, 1);
-    __nvrm_out_ring(nvdesc, 0);
-
-    __nvrm_begin_ring_nve4(nvdesc, SUBCH_NV_COMPUTE, 0x310, 1);
-    __nvrm_out_ring(nvdesc, 0x300);
-
-    __nvrm_fire_ring(nvdesc);
 
     handle->nvdesc = (void*)nvdesc;
     return 1;
