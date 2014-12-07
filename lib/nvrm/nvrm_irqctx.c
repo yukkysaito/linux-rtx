@@ -312,13 +312,13 @@ int rtx_nvrm_notify(struct rtxGhandle **arg)
     }
 
     uint64_t addr = nvdesc->notify.addr;
-    __nvrm_begin_ring_nve4(nvdesc, SUBCH_NV_COMPUTE, 0x110, 1);
+    nvdesc->begin_ring(nvdesc, SUBCH_NV_COMPUTE, 0x110, 1);
     __nvrm_out_ring(nvdesc, 0); /* SERIALIZE */
-    __nvrm_begin_ring_nve4(nvdesc, SUBCH_NV_COMPUTE, 0x104, 3);
+    nvdesc->begin_ring(nvdesc, SUBCH_NV_COMPUTE, 0x104, 3);
     __nvrm_out_ring(nvdesc, addr >> 32); /* NOTIFY_HIGH_ADDRESS */
     __nvrm_out_ring(nvdesc, addr); /* NOTIFY_LOW_ADDRESS */
     __nvrm_out_ring(nvdesc, 1); /* WRITTEN_AND_AWAKEN */
-    __nvrm_begin_ring_nve4(nvdesc, SUBCH_NV_COMPUTE, 0x100, 1);
+    nvdesc->begin_ring(nvdesc, SUBCH_NV_COMPUTE, 0x100, 1);
     __nvrm_out_ring(nvdesc, cid); /* NOP */
 
     __nvrm_fire_ring(nvdesc);
