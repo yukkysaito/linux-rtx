@@ -94,10 +94,13 @@ static void nvrm_ctx_new(struct nvrm_desc *desc)
 {
     struct nvrm_channel *chan;
     struct nvrm_vspace *nvas = desc->nvas;
-    uint32_t chipset = 0xe0;
+    uint32_t chipset, chip_major, chip_minor;
     uint32_t cls;
     uint32_t ccls;
     uint32_t accls = 0;
+
+    nvrm_device_get_chipset(desc->dev, &chip_major, &chip_minor, 0);
+    chipset = chip_major | chip_minor;
 
     if (chipset < 0x80)
 	cls = 0x506f, ccls = 0x50c0;
