@@ -109,21 +109,18 @@ int cuda_test_madd(unsigned int n, char *path, int loop_count)
 	grid_y++;
 
     gettimeofday(&tv_total_start, NULL);
-    fprintf(stderr,"5aiueo\n");
     res = cuInit(0);
     if (res != CUDA_SUCCESS) {
 	printf("cuInit failed: res = %lu\n", (unsigned long)res);
 	return -1;
     }
 
-    fprintf(stderr,"4aiueo\n");
     res = cuDeviceGet(&dev, 0);
     if (res != CUDA_SUCCESS) {
 	printf("cuDeviceGet failed: res = %lu\n", (unsigned long)res);
 	return -1;
     }
 
-    fprintf(stderr, "2aiueo\n");
     res = cuCtxCreate(&ctx, 0, dev);
     if (res != CUDA_SUCCESS) {
 	printf("cuCtxCreate failed: res = %lu\n", (unsigned long)res);
@@ -144,7 +141,7 @@ int cuda_test_madd(unsigned int n, char *path, int loop_count)
 #endif
     gettimeofday(&tv_init_end, NULL);
 
-    for (loop = 0; loop<10; loop++){
+    for (loop = 0; loop<LOOP_COUNT; loop++){
 	
 	gettime(&ts1);
 	sprintf(fname, "%s/loop_gpu.cubin", path);
@@ -279,8 +276,7 @@ int cuda_test_madd(unsigned int n, char *path, int loop_count)
 	}
 
 #ifndef DISABLE_SCHED_GPU
-	//rtx_gpu_sync(&handle);
-	rtx_gpu_notify(&handle,0);
+	rtx_gpu_notify(&handle);
 	rtx_gpu_sync(&handle);
 #endif
 #if 1

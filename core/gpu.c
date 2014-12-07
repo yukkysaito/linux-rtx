@@ -360,8 +360,6 @@ int gsched_notify(unsigned long arg)
 {
     struct rtxGhandle *h = (struct rtxGhandle*)arg;
     struct gdev_sched_entity *se = sched_entity_ptr[h->cid];
-    printk("[%s]:_%d\n",__func__,h->cid);
-
 
     spin_lock( &reschg_global_spinlock );
     if(atomic_read(&se->launch_count) < 0)
@@ -370,7 +368,6 @@ int gsched_notify(unsigned long arg)
     atomic_inc(&se->launch_count);
     
     spin_unlock( &reschg_global_spinlock );
-   
 
     /*
        while(atomic_read(&resch_desc[0]->intr_flag)!=0){

@@ -7,5 +7,6 @@
 //#define MUTEX_OFF
 
 #define DEFAULT_PRIO 80
+#define LOOP_COUNT 10
 
 #endif

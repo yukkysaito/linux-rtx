@@ -68,12 +68,9 @@ int rtx_gpu_exit(void)
 
 static int Ghandle_init(struct rtxGhandle **arg)
 {
-    struct rtxGhandle *handle = *arg; 
-    
-    if (!handle) {
-	handle =(struct rtxGhandle*)malloc(sizeof(struct rtxGhandle));
-	
-	if (!(handle))
+    if (!(*arg)) {
+	*arg =(struct rtxGhandle*)malloc(sizeof(struct rtxGhandle));
+	if (!(*arg))
 	    return -ENOMEM;
 	
 	ghandler = arg;
@@ -85,7 +82,7 @@ static int Ghandle_init(struct rtxGhandle **arg)
 int rtx_gpu_open(struct rtxGhandle **arg, unsigned int dev_id)
 {
     int ret;
-    struct rtxGhandle *handle = *arg; 
+    struct rtxGhandle *handle;
     
     /* module check*/
     fd = open(RESCH_DEVNAME, O_RDWR);
@@ -98,6 +95,7 @@ int rtx_gpu_open(struct rtxGhandle **arg, unsigned int dev_id)
 	return -ENOMEM;
     }
 
+    handle = *arg;
     handle->dev_id = dev_id;
     handle->sched_flag = GPU_SCHED_FLAG_OPEN ;
 
