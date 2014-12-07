@@ -69,6 +69,7 @@
 #define GDEV_IOCTL_CLOSE 204
 
 #define GDEV_IOCTL_NOTIFY 205
+#define GDEV_IOCTL_SETCID 206
 
 //time function
 //
