@@ -145,29 +145,29 @@ irqreturn_t gsched_intr(int irq, void *arg)
     {
 	stat = engine_gr_intr(priv, nv_rd32(priv, 0x400100)); /* process pgraph engine interrupt */
     }
-    else if(intr == 0x00100000)
+    else
     {	
-	if(gdev_vds[0].current_com || gdev_vds[1].current_com ){
+	for( i = 0; i < gpu_vcount; i++){
+	    if (gdev_vds[i].current_com){
+		if(intr & 0x00100000){
+		    nv_wr32(priv, NV04_PTIMER_INTR_EN_0, 0x0); // disable timer interrupt
 
-		nv_wr32(priv, NV04_PTIMER_INTR_EN_0, 0x0); // disable timer interrupt
-		
-		do {
-		    hi = nv_rd32(priv, NV04_PTIMER_TIME_1);
-		    lo = nv_rd32(priv, NV04_PTIMER_TIME_0);
-		} while (hi != nv_rd32(priv, NV04_PTIMER_TIME_1));
+		    do {
+			hi = nv_rd32(priv, NV04_PTIMER_TIME_1);
+			lo = nv_rd32(priv, NV04_PTIMER_TIME_0);
+		    } while (hi != nv_rd32(priv, NV04_PTIMER_TIME_1));
 
-		timestamp = (uint64_t) (hi<<32 |  lo + 1000000000ULL);
-		nv_wr32(priv, NV04_PTIMER_INTR_0, 0xffffffff);
-		nv_wr32(priv, NV04_PTIMER_ALARM_0, timestamp); // write the next wakeup alarm time
-		nv_wr32(priv, NV04_PTIMER_INTR_EN_0, 0x1); // enable timer interrupt
-		nv_wr32(priv, 0x140, 1);
-	
+		    timestamp = (uint64_t) (hi<<32 |  lo + 1000000000ULL);
+		    nv_wr32(priv, NV04_PTIMER_INTR_0, 0xffffffff);
+		    nv_wr32(priv, NV04_PTIMER_ALARM_0, timestamp); // write the next wakeup alarm time
+		    nv_wr32(priv, NV04_PTIMER_INTR_EN_0, 0x1); // enable timer interrupt
+		    nv_wr32(priv, 0x140, 1);
+		} /*timer*/
 		return IRQ_HANDLED;
-	}
-    
-    }else{
-	RESCH_G_DPRINT("Don't treat it interrupt:0x%lx\n",intr);
+	    }/* current_com */
+	}/*for*/
     }
+
     return __desc->gpu_driver_handler(__desc->irq_num, __desc->dev_id_orig);
 }
 
@@ -546,7 +546,8 @@ int gsched_pci_init(struct resch_irq_desc **desc_top)
 	desc_top[__gpu_count] = __rdesc;
 
 	__gpu_count++;
-	break;
+	if(__gpu_count >= NR_GPU_CARD_LIMIT)
+	    break;
     }
     atomic_set(&resch_desc[0]->intr_flag,0);
 
