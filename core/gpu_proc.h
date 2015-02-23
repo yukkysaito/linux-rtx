@@ -79,9 +79,9 @@ int gdev_proc_create(void)
 {
 	char name[256];
 
-	gdev_proc = proc_mkdir("gdev", NULL);
+	gdev_proc = proc_mkdir("resch", NULL);
 	if (!gdev_proc) {
-		RESCH_G_PRINT("Failed to create /proc/gdev\n");
+		RESCH_G_PRINT("Failed to create /proc/resch\n");
 		goto fail_proc;
 	}
 
@@ -91,7 +91,7 @@ int gdev_proc_create(void)
 	                                  &gdev_proc_dev_count_fops,
                                           &gpu_count);
 	if (!proc_dev_count) {
-		RESCH_G_PRINT("Failed to create /proc/gdev/%s\n", name);
+		RESCH_G_PRINT("Failed to create /proc/resch/%s\n", name);
 		goto fail_proc_dev_count;
 	}
 
@@ -101,24 +101,24 @@ int gdev_proc_create(void)
 	                                       &gdev_proc_virt_dev_count_fops,
                                                &gpu_vcount);
 	if (!proc_virt_dev_count) {
-		RESCH_G_PRINT("Failed to create /proc/gdev/%s\n", name);
+		RESCH_G_PRINT("Failed to create /proc/resch/%s\n", name);
 		goto fail_proc_virt_dev_count;
 	}
 
 	/* allocate virtual devices information area*/
 	proc_vd = kzalloc(sizeof(*proc_vd) * gpu_vcount, GFP_KERNEL);
 	if (!proc_vd) {
-		RESCH_G_PRINT("Failed to create /proc/gdev/%s\n", name);
+		RESCH_G_PRINT("Failed to create /proc/resch/%s\n", name);
 		goto fail_alloc_proc_vd;
 	}
 	return 0;
 
 fail_alloc_proc_vd:
-	remove_proc_entry("gdev/virtual_device_count", gdev_proc);
+	remove_proc_entry("resch/virtual_device_count", gdev_proc);
 fail_proc_virt_dev_count:
-	remove_proc_entry("gdev/device_count", gdev_proc);
+	remove_proc_entry("resch/device_count", gdev_proc);
 fail_proc_dev_count:
-	remove_proc_entry("gdev", NULL);
+	remove_proc_entry("resch", NULL);
 	gdev_proc = NULL;
 fail_proc:
 	return -EINVAL;
@@ -255,7 +255,7 @@ int gdev_proc_minor_create(int vid)
     sprintf(name, "vd%d", vid);
     proc_vd[vid].dir = proc_mkdir(name, gdev_proc);
     if (!proc_vd[vid].dir) {
-	RESCH_G_PRINT("Failed to create /proc/gdev/%s\n", name);
+	RESCH_G_PRINT("Failed to create /proc/resch/%s\n", name);
 	goto fail_proc_vd;
     }
 
@@ -265,7 +265,7 @@ int gdev_proc_minor_create(int vid)
                                            &gdev_proc_com_bw_fops,
                                            &gdev_vds[vid].com_bw);
     if (!proc_vd[vid].com_bw) {
-	RESCH_G_PRINT("Failed to create /proc/gdev/vd%d/%s\n", vid, name);
+	RESCH_G_PRINT("Failed to create /proc/resch/vd%d/%s\n", vid, name);
 	goto fail_proc_vd;
     }
 
@@ -275,7 +275,7 @@ int gdev_proc_minor_create(int vid)
                                            &gdev_proc_mem_bw_fops,
                                            &gdev_vds[vid].mem_bw);
     if (!proc_vd[vid].mem_bw) {
-	RESCH_G_PRINT("Failed to create /proc/gdev/vd%d/%s\n", vid, name);
+	RESCH_G_PRINT("Failed to create /proc/resch/vd%d/%s\n", vid, name);
 	goto fail_proc_vd;
     }
 
@@ -285,7 +285,7 @@ int gdev_proc_minor_create(int vid)
                                            &gdev_proc_mem_sh_fops,
                                            &gdev_vds[vid].mem_sh);
     if (!proc_vd[vid].mem_sh) {
-	RESCH_G_PRINT("Failed to create /proc/gdev/vd%d/%s\n", vid, name);
+	RESCH_G_PRINT("Failed to create /proc/resch/vd%d/%s\n", vid, name);
 	goto fail_proc_vd;
     }
 
@@ -295,7 +295,7 @@ int gdev_proc_minor_create(int vid)
                                            &gdev_proc_period_fops,
                                            &gdev_vds[vid].period);
     if (!proc_vd[vid].period) {
-	RESCH_G_PRINT("Failed to create /proc/gdev/vd%d/%s\n", vid, name);
+	RESCH_G_PRINT("Failed to create /proc/resch/vd%d/%s\n", vid, name);
 	goto fail_proc_vd;
     }
 
@@ -305,7 +305,7 @@ int gdev_proc_minor_create(int vid)
                                            &gdev_proc_com_bw_used_fops,
                                            &gdev_vds[vid].com_bw_used);
     if (!proc_vd[vid].com_bw_used) {
-	RESCH_G_PRINT("Failed to create /proc/gdev/vd%d/%s\n", vid, name);
+	RESCH_G_PRINT("Failed to create /proc/resch/vd%d/%s\n", vid, name);
 	goto fail_proc_vd;
     }
 
@@ -325,7 +325,7 @@ int gdev_proc_minor_create(int vid)
                                          &gdev_proc_phys_fops,
                                          &gdev_vds[vid].parent->id);
     if (!proc_vd[vid].phys) {
-	RESCH_G_PRINT("Failed to create /proc/gdev/vd%d/%s\n", vid, name);
+	RESCH_G_PRINT("Failed to create /proc/resch/vd%d/%s\n", vid, name);
 	goto fail_proc_vd;
     }
 
@@ -335,7 +335,7 @@ int gdev_proc_minor_create(int vid)
 fail_proc_vd:
     for (i = 0; i < gpu_vcount; i++) {
 	if (proc_vd[vid].dir) {
-	    sprintf(name, "gdev/vd%d", i);
+	    sprintf(name, "resch/vd%d", i);
 	    remove_proc_entry(name, gdev_proc);
 	}
 	if (proc_vd[vid].com_bw)
@@ -355,9 +355,9 @@ fail_proc_vd:
     }
     kfree(proc_vd);
     proc_vd = NULL;
-    remove_proc_entry("gdev/virtual_device_count", gdev_proc);
-    remove_proc_entry("gdev/device_count", gdev_proc);
-    remove_proc_entry("gdev", NULL);
+    remove_proc_entry("resch/virtual_device_count", gdev_proc);
+    remove_proc_entry("resch/device_count", gdev_proc);
+    remove_proc_entry("resch", NULL);
     gdev_proc = NULL;
     return -EINVAL;
 }
@@ -392,7 +392,7 @@ int gdev_proc_delete(void)
 remove_gdev_proc_root:
 	remove_proc_entry("virtual_device_count", gdev_proc);
 	remove_proc_entry("device_count", gdev_proc);
-	remove_proc_entry("gdev", NULL);
+	remove_proc_entry("resch", NULL);
 	gdev_proc = NULL;
 
 end:

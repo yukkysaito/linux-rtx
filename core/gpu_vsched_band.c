@@ -1,6 +1,35 @@
+/*
+ * Copyright (c) 2014 Shinpei Kato, Yusuke Fujii
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, including without limitation
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+ * THE COPYRIGHT HOLDER(S) OR AUTHOR(S) BE LIABLE FOR ANY CLAIM, DAMAGES OR
+ * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+ * OTHER DEALINGS IN THE SOFTWARE.
+ *
+ */
+
+#if 0
 #define SCHED_YIELD() yield()
+#else
+#define SCHED_YIELD() yield() 
+#endif
 
 #define GDEV_VSCHED_BAND_SELECT_CHANCES 1
+
+extern struct gdev_device gdev_vds[GDEV_DEVICE_MAX_COUNT];
 
 static int __gdev_is_alone(struct gdev_device *gdev)
 {
@@ -27,7 +56,7 @@ static void __gdev_vsched_band_yield_chance(void)
 {
 	struct gdev_time time_wait, time_now;
 	gdev_time_stamp(&time_now);
-	gdev_time_us(&time_wait, 500); /* 500 us */
+	gdev_time_us(&time_wait, GDEV_YIELD_CHANCE_TIME); /* 500 us */
 	gdev_time_add(&time_wait, &time_wait, &time_now);
 	while (gdev_time_lt(&time_now, &time_wait)) {
 		SCHED_YIELD();
@@ -45,9 +74,11 @@ static void gdev_vsched_band_schedule_compute(struct gdev_sched_entity *se)
 
 resched:
 	/* yielding if necessary. */
+	printk("[%s:%d-%d]:combw VGPU0:%d, VGPU1:%d, VGPU2:%d, VGPU3:%d\n",__func__,gdev->id,task_tgid_vnr(current),gdev_vds[0].com_bw_used,gdev_vds[1].com_bw_used,gdev_vds[2].com_bw_used,gdev_vds[3].com_bw_used);
 	if (gdev_time_lez(&gdev->credit_com) && (gdev->com_bw_used > gdev->com_bw)
 		&& !__gdev_is_alone(gdev)) {
 		gdev_lock(&phys->sched_com_lock);
+		printk("[%s-%d]:over running....gdev#%d yield\n",__func__,task_tgid_vnr(current),gdev->id);
 		if (gdev_current_com_get(phys)== gdev) {
 			gdev_current_com_set(phys,NULL);
 			gdev_unlock(&phys->sched_com_lock);
@@ -55,36 +86,43 @@ resched:
 			__gdev_vsched_band_yield_chance();
 
 			gdev_lock(&phys->sched_com_lock);
-			if (gdev_current_com_get(gdev)== NULL)
-				gdev_current_com_set(phys,gdev);
+	
+			
+			if (gdev_current_com_get(phys)== NULL){
+			    gdev_current_com_set(phys,gdev);
+			}
+
 			gdev_unlock(&phys->sched_com_lock);
 		}
 		else
 			gdev_unlock(&phys->sched_com_lock);
 	}
+	// printk("[%s:%d-%d]:combw VGPU0:%d, VGPU1:%d, VGPU2:%d, VGPU3:%d\n",__func__,gdev->id,task_tgid_vnr(current),gdev_vds[0].com_bw_used,gdev_vds[1].com_bw_used,gdev_vds[2].com_bw_used,gdev_vds[3].com_bw_used);
 
 	gdev_lock(&phys->sched_com_lock);
 
 	if (gdev_current_com_get(phys)&& (gdev_current_com_get(phys)!= gdev)) {
 		/* insert the scheduling entity to its local priority-ordered list. */
+		gdev_unlock(&phys->sched_com_lock);
+	
 		gdev_lock_nested(&gdev->sched_com_lock);
 		__gdev_enqueue_compute(gdev, se);
+		RESCH_G_DPRINT("[%d]Gdev#%d Ctx#%d Sleep\n", task_tgid_vnr(current),gdev->id, se->ctx);
 		gdev_unlock_nested(&gdev->sched_com_lock);
-		gdev_unlock(&phys->sched_com_lock);
 
-		RESCH_G_PRINT("Gdev#%d Ctx#%d Sleep\n", gdev->id, se->ctx);
 
 		/* now the corresponding task will be suspended until some other tasks
 		   will awaken it upon completions of their compute launches. */
+		// RESCH_G_DPRINT("[%d]Gdev#%d Ctx#%d Sleep\n", task_tgid_vnr(current),gdev->id, se->ctx);
 		gdev_sched_sleep(se);
 
 		goto resched;
 	}
 	else {
+	    printk("[%s-%d]",__func__, task_tgid_vnr(current));
 		gdev_current_com_set(phys,(void *)gdev);
 		gdev_unlock(&phys->sched_com_lock);
-
-		RESCH_G_PRINT("Gdev#%d Ctx#%d Run\n", gdev->id, se->ctx);
+		RESCH_G_DPRINT("[%d]Gdev#%d Ctx#%d is ok!\n", task_tgid_vnr(current), gdev->id, se->ctx);
 	}
 }
 
@@ -94,11 +132,16 @@ static struct gdev_device *gdev_vsched_band_select_next_compute(struct gdev_devi
 	struct gdev_device *next;
 	int chances = GDEV_VSCHED_BAND_SELECT_CHANCES;
 
-
 	if (!phys)
 		return gdev;
 
-	//RESCH_G_PRINT("Gdev#%d Complete\n", gdev->id);
+	RESCH_G_DPRINT("[%d]:Gdev#%d Complete\n", task_tgid_vnr(current), gdev->id);
+
+	if(gdev_current_com_get(phys) &&  gdev_current_com_get(phys)!=gdev){
+	    printk("[%d]:The other task is already running, phys_com:0x%lx\n", task_tgid_vnr(current),gdev_current_com_get(phys));
+	    printk("gdev_com:0x%lx\n",gdev_current_com_get(gdev));
+	    return gdev_current_com_get(phys);
+	}
 retry:
 	gdev_lock(&phys->sched_com_lock);
 
@@ -112,12 +155,12 @@ retry:
 	    gdev_lock_nested(&next->sched_com_lock);
 		if (!gdev_list_empty(&next->sched_com_list)) {
 			gdev_unlock_nested(&next->sched_com_lock);
-			RESCH_G_PRINT("Gdev#%d Selected\n", next->id);
+			RESCH_G_DPRINT("[%d]:Gdev#%d Selected\n", task_tgid_vnr(current), next->id);
 			goto device_switched;
 		}
 		gdev_unlock_nested(&next->sched_com_lock);
 	}
-	RESCH_G_PRINT("Nothing Selected\n");
+	RESCH_G_DPRINT("[%d]:Nothing Selected\n", task_tgid_vnr(current));
 	next = NULL;
 device_switched:
 	gdev_current_com_set(phys, (void*)next); /* could be null */
@@ -125,21 +168,27 @@ device_switched:
 	if (next && (next != gdev) && (next->com_bw_used > next->com_bw)) {
 		gdev_current_com_set(phys,NULL);
 		gdev_unlock(&phys->sched_com_lock);
+		// gdev_lock_nested(&gdev->sched_com_lock);
+		// printk("[%s:%d-%d-%d]Release in the GPU\n",__func__, task_tgid_vnr(current),gdev->id,next->id);
 		__gdev_vsched_band_yield_chance();
-		gdev_lock(&phys->sched_com_lock);
+		// gdev_unlock_nested(&gdev->sched_com_lock);
+		// printk("[%s:%d-%d-%d]Release out the GPU\n",__func__, task_tgid_vnr(current),gdev->id,next->id);
+		gdev_lock(&phys ->sched_com_lock);
 		if (gdev_current_com_get(phys) == NULL) {
 			gdev_current_com_set(phys,(void*)next);
 			chances--;
 			if (chances) {
 				gdev_unlock(&phys->sched_com_lock);
-				RESCH_G_PRINT("Try again\n");
+				RESCH_G_DPRINT("[%d]:Try again\n", task_tgid_vnr(current));
 				goto retry;
 			}
 			else
 				gdev_unlock(&phys->sched_com_lock);
 		}
-		else
-			gdev_unlock(&phys->sched_com_lock);
+		else{
+		    next = gdev_current_com_get(phys);
+		    gdev_unlock(&phys->sched_com_lock);
+		}
 	}
 	else
 		gdev_unlock(&phys->sched_com_lock);

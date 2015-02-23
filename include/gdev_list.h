@@ -38,7 +38,7 @@
 struct gdev_list {
     struct gdev_list *next;
     struct gdev_list *prev;
-	void *container;
+    void *container;
 };
 
 static inline void gdev_list_init(struct gdev_list *entry, void *container)

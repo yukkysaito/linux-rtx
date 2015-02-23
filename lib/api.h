@@ -1,6 +1,8 @@
 #ifndef __LIB_API_H__
 #define __LIB_API_H__
 
+
+
 /* supported scheduling policy. */
 #define SCHED_FAIR	0
 #define SCHED_FP	1
@@ -12,6 +14,11 @@
 
 /* period value for non-perioid tasks. */
 #define RESCH_PERIOD_INFINITY	0
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 /************************************************************
  * PORT-I APIs for preemptive periodic real-time scheduling.
@@ -56,5 +63,10 @@ int rt_test_get_migration_cost(void);
 int rt_test_get_runtime(void);
 int rt_test_get_utime(void);
 int rt_test_get_stime(void);
+int rt_test_reset_stime(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -104,6 +104,11 @@ int test_get_migration_cost(int rid)
 	return test_nsecs_to_usecs(end - begin);
 }
 
+void test_reset_stime(void)
+{
+	return current->stime = 0;
+}
+
 int test_get_runtime(void)
 {
 	return current->utime + current->stime;
@@ -116,6 +121,7 @@ int test_get_utime(void)
 
 int test_get_stime(void)
 {
-	return current->stime;
+    printk("[%s]:stime=%ld, utime=%ld\n",__func__, current->stime, current->utime);
+    return current->stime;
 }
 

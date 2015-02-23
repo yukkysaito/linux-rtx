@@ -1,5 +1,5 @@
 /*
- * main.c:		Copyright (C) Shinpei Kato
+ * main.c:		Copyright (C) Shinpei Kato, Yusuke Fujii
  *
  * Entry point of the RESCH core.
  * The RESCH core is a character device module.
@@ -205,6 +205,12 @@ static int resch_ioctl(struct inode *inode,
 		return gsched_sync(arg);
 	    case GDEV_IOCTL_CLOSE:
 		return gsched_close(arg);
+	    case GDEV_IOCTL_NOTIFY:
+		return gsched_notify(arg);
+	    case GDEV_IOCTL_SETCID:
+		return gsched_setcid(arg);
+	    case GDEV_IOCTL_GETDEV:
+		return gsched_getdev(arg);
 	    default:
 
 		/* copy data to kernel buffer. */
@@ -243,6 +249,9 @@ static int resch_ioctl(struct inode *inode,
 
 		    case TEST_GET_STIME:
 			return test_get_stime();
+		    
+		    case TEST_RESET_STIME:
+			return test_reset_stime();
 		    default:
 			printk(KERN_WARNING "RESCH: illegal test command.\n");
 			return RES_FAULT;

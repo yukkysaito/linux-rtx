@@ -35,6 +35,8 @@
 #include "../api_gpu.h"
 
 #define GDEV_FENCE_BUF_SIZE 0x10000
+#define GDEV_FENCE_QUERY_SIZE 0x10
+#define GDEV_FENCE_COUNT (GDEV_FENCE_BUF_SIZE / GDEV_FENCE_QUERY_SIZE)
 
 struct nvrm_desc{
     struct nvrm_device *dev;
@@ -150,7 +152,14 @@ static void nvrm_ctx_new(struct nvrm_desc *desc)
 
     /* FIFO command queue registers. */
     desc->fifo.regs = nvrm_channel_host_map_regs(chan);
-    
+
+    desc->fence.bo = nvrm_bo_create(nvas, GDEV_FENCE_BUF_SIZE, 1);
+    if(!desc->fence.bo)
+	goto fail_fence_alloc;
+    desc->fence.map = nvrm_bo_host_map(desc->fence.bo);
+    desc->fence.addr = nvrm_bo_gpu_addr(desc->fence.bo);
+    desc->fence.seq = 0;
+
     /* interrupt buffer. */
     desc->notify.bo = nvrm_bo_create(nvas, 256,0);//64, 0);
     if (!desc->notify.bo)
@@ -164,6 +173,7 @@ static void nvrm_ctx_new(struct nvrm_desc *desc)
 
 fail_notify_alloc:
     nvrm_bo_destroy(desc->fence.bo);
+fail_fence_alloc:
 fail_activate:
 fail_eng:
     nvrm_channel_destroy(chan);
@@ -295,6 +305,97 @@ out_vspace:
 /*
  * API 
  * */
+
+static struct gdev_nve4_query{
+    uint32_t sequence;
+    uint32_t pad;
+    uint64_t timestamp;
+};
+
+static void nve4_fence_write(struct nvrm_desc *nvdesc, int subch, uint32_t sequence)
+{
+
+    uint32_t offset = sequence * sizeof(struct gdev_nve4_query);
+    uint64_t vm_addr = nvdesc->fence.addr + offset;
+    int intr = 0; /* intr = 1 will cause an interrupt too. */
+#if 0
+    switch (subch) {
+	case GDEV_SUBCH_NV_COMPUTE:
+#endif
+	    __nvrm_begin_ring_nve4(nvdesc, SUBCH_NV_COMPUTE, 0x110, 1);
+	    __nvrm_out_ring(nvdesc, 0); /* SERIALIZE */
+	    __nvrm_begin_ring_nve4(nvdesc, SUBCH_NV_COMPUTE, 0x1b00, 4);
+	    __nvrm_out_ring(nvdesc, vm_addr >> 32); /* QUERY_ADDRESS HIGH */
+	    __nvrm_out_ring(nvdesc, vm_addr); /* QUERY_ADDRESS LOW */
+	    __nvrm_out_ring(nvdesc, sequence); /* QUERY_SEQUENCE */
+	    __nvrm_out_ring(nvdesc, intr << 20); /* QUERY_GET */
+#if 0
+	    break;
+	case GDEV_SUBCH_NV_P2MF:
+	    __nvrm_begin_ring_nve4(nvdesc, GDEV_SUBCH_NV_P2MF, 0x1dc, 3);//32c=>1dc
+	    __nvrm_out_ring(nvdesc, vm_addr >> 32); /* QUERY_ADDRESS HIGH */
+	    __nvrm_out_ring(nvdesc, vm_addr); /* QUERY_ADDRESS LOW */
+	    __nvrm_out_ring(nvdesc, sequence); /* QUERY_SEQUENCE */
+	    break;
+	case GDEV_SUBCH_NV_PCOPY0:
+	    __nvrm_begin_ring_nve4(nvdesc, GDEV_SUBCH_NV_PCOPY1, 0x240, 3);
+	    __nvrm_out_ring(nvdesc, vm_addr >> 32); /* QUERY_ADDRESS HIGH */
+	    __nvrm_out_ring(nvdesc, vm_addr); /* QUERY_ADDRESS LOW */
+	    __nvrm_out_ring(nvdesc, sequence); /* QUERY_COUNTER */
+	    break;
+#ifdef GDEV_NVIDIA_USE_PCOPY1
+	case GDEV_SUBCH_NV_PCOPY1:
+	    __nvrm_begin_ring_nve4(nvdesc, GDEV_SUBCH_NV_PCOPY1, 0x338, 3);
+	    __nvrm_out_ring(nvdesc, vm_addr >> 32); /* QUERY_ADDRESS HIGH */
+	    __nvrm_out_ring(nvdesc, vm_addr); /* QUERY_ADDRESS LOW */
+	    __nvrm_out_ring(nvdesc, sequence); /* QUERY_COUNTER */
+	    break;
+#endif
+    }
+#endif
+    __nvrm_fire_ring(nvdesc);
+}
+
+static inline void nve4_fence_reset(struct nvrm_desc *nvdesc, uint32_t sequence)
+{
+    ((struct gdev_nve4_query*)(nvdesc->fence.map))[sequence].sequence = ~0;
+}
+static uint32_t nve4_fence_read(struct nvrm_desc *nvdesc, uint32_t sequence)
+{
+    return ((struct gdev_nve4_query*)(nvdesc->fence.map))[sequence].sequence;
+}
+
+int rtx_nvrm_fence_poll(struct rtxGhandle **arg, uint8_t flag, uint32_t sequence)
+{
+    struct rtxGhandle *handle = *arg;
+    struct nvrm_desc *nvdesc = handle->nvdesc;
+
+    int count=0;
+
+    while(sequence != nve4_fence_read(nvdesc, sequence)){
+	nve4_fence_read(nvdesc, sequence);
+	    sched_yield();
+    }
+    nve4_fence_reset(nvdesc, sequence);
+}
+
+int rtx_nvrm_fence(struct rtxGhandle **arg)
+{
+    struct rtxGhandle *handle = *arg;
+    struct nvrm_desc *nvdesc = handle->nvdesc;
+    uint32_t seq;
+
+    if(++nvdesc->fence.seq == GDEV_FENCE_COUNT)
+	nvdesc->fence.seq = 1;
+    seq = nvdesc->fence.seq;
+    /*fix this*/
+    seq = handle->cid;
+
+    /*reset*/
+    nve4_fence_reset(nvdesc, seq);
+    nve4_fence_write(nvdesc, 0/*GDEV_OP_COMPUTE*/,seq);
+
+}
 
 int rtx_nvrm_notify(struct rtxGhandle **arg)
 {

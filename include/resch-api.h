@@ -64,6 +64,7 @@
 #define TEST_GET_RUNTIME		106
 #define TEST_GET_UTIME			107
 #define TEST_GET_STIME			108
+#define TEST_RESET_STIME			109
 
 /* ioctl command numbers  */
 

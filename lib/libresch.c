@@ -325,3 +325,8 @@ int rt_test_get_stime(void)
 {
 	return __test(TEST_GET_STIME, 0);
 }
+
+int rt_test_reset_stime(void)
+{
+	return __test(TEST_RESET_STIME, 0);
+}

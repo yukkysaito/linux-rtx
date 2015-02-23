@@ -11,18 +11,30 @@
 #include <resch-config.h>
 #include <resch-gpu-lock.h>
 #include "gdev_list.h"
+/**
+  50  * virtual device period/threshold.
+  51  */
+//#define GDEV_PERIOD_DEFAULT 30000
+// #define GDEV_PERIOD_DEFAULT  500 /* microseconds */
+//#define GDEV_PERIOD_DEFAULT  500000000 /* microseconds */
+#define GDEV_PERIOD_DEFAULT  100/* microseconds */
+#define GDEV_CREDIT_INACTIVE_THRESHOLD GDEV_PERIOD_DEFAULT
+#define GDEV_UPDATE_INTERVAL 5000000
+#define GDEV_YIELD_CHANCE_TIME 100
+// #define GDEV_UPDATE_INTERVAL 1000000009
 
 
 /*CONFIGURATION*/
 //#define ALLOC_VGPU_PER_ONETASK
+#ifdef DEBUG_PRINT
 #define RESCH_GPU_DEBUG_PRINT
+#endif
 
 #define MAX 25
-#define SCHED_YILED() yield()
-#define RESCH_G_PRINT(fmt,arg...) printk(KERN_INFO "[RESCH-#G]:" fmt, ##arg)
+#define RESCH_G_PRINT(fmt,arg...) printk(KERN_INFO "[RESCH-G]:" fmt, ##arg)
 
 #ifdef RESCH_GPU_DEBUG_PRINT
-#define RESCH_G_DPRINT(fmt,arg...) printk(KERN_INFO "[RESCH-G]:" fmt, ##arg)
+#define RESCH_G_DPRINT(fmt,arg...) printk(KERN_INFO "[RESCH-GD]:" fmt, ##arg)
 #else
 #define RESCH_G_DPRINT(fmt,arg...)
 #endif
@@ -48,12 +60,6 @@
 #define MAX_RT_PRIO 100
 #endif
 
-/**
-  50  * virtual device period/threshold.
-  51  */
-#define GDEV_PERIOD_DEFAULT 1000000 /* microseconds */
-#define GDEV_CREDIT_INACTIVE_THRESHOLD GDEV_PERIOD_DEFAULT
-#define GDEV_UPDATE_INTERVAL 1000000009
 
 /**
   57  * scheduling properties.
@@ -68,6 +74,9 @@
 #define GDEV_IOCTL_CLOSE 204
 
 #define GDEV_IOCTL_NOTIFY 205
+#define GDEV_IOCTL_SETCID 206
+
+#define GDEV_IOCTL_GETDEV 207
 
 //time function
 //
@@ -396,6 +405,7 @@ struct gdev_device {
     gdev_mutex_t shm_mutex;
     //gdev_mem_t *swap; /* reserved swap memory space */
     struct tasklet_struct *wakeup_tasklet_t;
+    void *wakeup_thread;
 };
 
 
@@ -422,6 +432,9 @@ typedef struct gdev_mem gdev_mem_t;
 struct gdev_sched_entity {
     struct gdev_device *gdev; /* associated Gdev (virtual) device */
     void *task; /* private task structure */
+    void *notify_task;
+    int notify_flag;
+
     gdev_ctx_t *ctx; /* holder context */
     int prio; /* general priority */
     int rt_prio; /* real-time priority */
@@ -429,6 +442,9 @@ struct gdev_sched_entity {
     struct gdev_list list_entry_mem; /* entry to memory scheduler list */
     struct gdev_time last_tick_com; /* last tick of compute execution */
     struct gdev_time last_tick_mem; /* last tick of memory transfer */
+    struct gdev_list list_wakeup_irq;
+    struct gdev_list list_wait_irq;
+    
     int launch_instances;
     int memcpy_instances;
     /* for sched_deadline  */
@@ -437,6 +453,7 @@ struct gdev_sched_entity {
     struct task_struct * current_task;
     wait_queue_head_t *wqueue;
     int wait_cond;
+    int wait_irq_cond;
     int64_t wait_time;
     atomic_t launch_count;
     int loop_count
@@ -464,12 +481,15 @@ struct resch_irq_desc {
     char *gpu_driver_name;
     void *mappings;
     void *dev_id_orig;
-    irq_handler_t gpu_driver_handler;
-    irq_handler_t resch_handler;
+    irq_handler_t gpu_driver_handler; /* original driver's handler callback function pointer */
+    irq_handler_t resch_handler; /* our overlapping handler function pointer  */
+ 
+    atomic_t intr_flag;
     int sched_flag;
     spinlock_t release_lock;
     struct tasklet_struct *wake_tasklet;
 };
+
 
 struct gdev_vsched_policy {
     void (*schedule_compute)(struct gdev_sched_entity *se);

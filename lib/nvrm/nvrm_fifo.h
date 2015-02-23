@@ -34,7 +34,7 @@ static inline void __nvrm_out_ring(struct nvrm_desc *desc, uint32_t word)
 {
 	while (((desc->fifo.pb_pos + 4) & desc->fifo.pb_mask) == desc->fifo.pb_get) {
 		uint32_t old = desc->fifo.pb_get;
-		//__nvrm_fire_ring(desc);
+		__nvrm_fire_ring(desc);
 		desc->fifo.update_get(desc);
 		if (old == desc->fifo.pb_get) {
 		    SCHED_YIELD();

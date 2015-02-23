@@ -335,6 +335,7 @@ static void edf_wait_period(resch_task_t *rt)
 	}
 	sched_wait_interval(!TIMER_ABSTIME, &ts_period, NULL);
 	rt->dl_sched_release_time = cpu_clock(smp_processor_id());
+
 }
 
 /* EDF scheduling class. */
