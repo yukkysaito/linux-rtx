@@ -87,7 +87,6 @@ resched:
 
 			gdev_lock(&phys->sched_com_lock);
 	
-			
 			if (gdev_current_com_get(phys)== NULL){
 			    gdev_current_com_set(phys,gdev);
 			}
@@ -110,7 +109,7 @@ resched:
 		RESCH_G_DPRINT("[%d]Gdev#%d Ctx#%d Sleep\n", task_tgid_vnr(current),gdev->id, se->ctx);
 		gdev_unlock_nested(&gdev->sched_com_lock);
 
-
+		se->task = current;
 		/* now the corresponding task will be suspended until some other tasks
 		   will awaken it upon completions of their compute launches. */
 		// RESCH_G_DPRINT("[%d]Gdev#%d Ctx#%d Sleep\n", task_tgid_vnr(current),gdev->id, se->ctx);
@@ -119,7 +118,6 @@ resched:
 		goto resched;
 	}
 	else {
-	    printk("[%s-%d]",__func__, task_tgid_vnr(current));
 		gdev_current_com_set(phys,(void *)gdev);
 		gdev_unlock(&phys->sched_com_lock);
 		RESCH_G_DPRINT("[%d]Gdev#%d Ctx#%d is ok!\n", task_tgid_vnr(current), gdev->id, se->ctx);

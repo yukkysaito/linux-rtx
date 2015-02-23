@@ -119,7 +119,6 @@ int rtx_gpu_open(struct rtxGhandle **arg, unsigned int dev_id, unsigned int vdev
     handle->sync_flag = DEFAULT_GSYNC_FLAG;
     //handle->sync_flag =GSYNC_FENCE_SPIN;
 
-
     if ((ret = __rtx_gpu_ioctl(GDEV_IOCTL_CTX_CREATE, (unsigned long)handle))<0){
     	return -ENODEV;
     }
@@ -248,10 +247,7 @@ int rtx_gpu_sync(struct rtxGhandle **arg)
     else{
 	ret = __rtx_gpu_ioctl(GDEV_IOCTL_SYNC, (unsigned long)handle);
     }
-
-
     return ret;
-
 }
 
 int rtx_gpu_close(struct rtxGhandle **arg)
@@ -288,4 +284,14 @@ int rtx_gpu_setcid(struct rtxGhandle **arg, int new_cid)
     }
 
     return (*ghandler)->cid;
+#if 0
+
+    if( !(arg) ){
+	__arg = *ghandler;
+    }
+ 
+    __arg->setcid = new_cid;
+
+    return __rtx_gpu_ioctl(GDEV_IOCTL_SETCID, (unsigned long)__arg);
+#endif
 }

@@ -14,5 +14,6 @@
 #define USE_NVIDIA_DRIVER
 // #define USE_NOUVEAU_DRIVER
 #define DEBUG_PRINT
+#define USE_NVIDIA_DRIVER
 
 #endif /* __RESCH_CONFIG_H__ */

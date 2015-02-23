@@ -75,7 +75,6 @@
 
 #define GDEV_IOCTL_NOTIFY 205
 #define GDEV_IOCTL_SETCID 206
-
 #define GDEV_IOCTL_GETDEV 207
 
 //time function
@@ -444,6 +443,7 @@ struct gdev_sched_entity {
     struct gdev_time last_tick_mem; /* last tick of memory transfer */
     struct gdev_list list_wakeup_irq;
     struct gdev_list list_wait_irq;
+    struct gdev_list list_entry_irq;
     
     int launch_instances;
     int memcpy_instances;

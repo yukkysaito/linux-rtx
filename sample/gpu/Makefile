@@ -1,10 +1,10 @@
 # Makefile
 TARGET	= user_test
 CC	= gcc
-CFLAGS +=-I/usr/local/gdev/include -L/usr/local/gdev/lib64/ -lucuda -lgdev -L../../include
-LIBS = -lucuda -lgdev /usr/lib/resch/libresch.a
+CFLAGS +=-I/usr/local/gdev/include  -I../../include
+LIBS = -L/usr/local/gdev/lib64/ -L/usr/lib/resch -lucuda -lgdev -lresch_gpu -lresch
 
-NV_ARCH = sm_20 
+NV_ARCH = sm_30 
 NVCC = nvcc -arch $(NV_ARCH) -cubin
 NV_SRC = loop
 

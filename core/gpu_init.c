@@ -40,10 +40,8 @@
 #include "nvc0_reg.h"
 #include "gpu_io.h"
 
-
 static const int DEVICE_RESOURCE[4] ={ 60,20,10,10};
 // static const int DEVICE_RESOURCE[4] ={ 25,25,25,25};
-
 
 struct gdev_device gdev_vds[GDEV_DEVICE_MAX_COUNT];
 struct gdev_device phys_ds[GDEV_DEVICE_MAX_COUNT];
@@ -56,6 +54,7 @@ struct gdev_sched_entity *sched_entity_ptr[GDEV_CONTEXT_MAX_COUNT];
 
 struct gdev_list list_irq_wakeup_head;
 struct gdev_list list_irq_wait_head;
+struct gdev_list list_entry_irq_head;
 
 extern spinlock_t reschg_global_spinlock;
 
@@ -193,7 +192,6 @@ static inline void wakeup_list_head_entity(void *priv, struct gdev_list *head){
 	    printk("Do not wait se#%d\n",se->ctx);
 	}
     }
-
 }
 
 
@@ -365,7 +363,6 @@ through:
     printk("after call driver handler\n");
 
     return ret;//ret;
-    return __desc->gpu_driver_handler(__desc->irq_num, __desc->dev_id_orig);
 
 notcall:
 
@@ -764,6 +761,7 @@ int gsched_pci_init(struct resch_irq_desc **desc_top)
 	if(__gpu_count >= NR_GPU_CARD_LIMIT)
 	    break;
     }
+//    atomic_set(&resch_desc[0]->intr_flag,0);
 
     return __gpu_count;
 }
