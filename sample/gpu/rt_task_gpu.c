@@ -28,15 +28,15 @@ static struct timespec ns_to_timespec(unsigned long ns)
 	return ts;
 }
 
-static unsigned long timespec_to_ns_sub(struct timespec *ts1, struct timespec *ts2)
+static unsigned long long timespec_to_ns_sub(struct timespec *ts1, struct timespec *ts2)
 {
-	unsigned long ret, ret2;
+	unsigned long long ret, ret2;
 	ret = ts1->tv_sec * 10^9;
 	ret2 = ts2->tv_sec * 10^9;
 	ret += ts1->tv_nsec;
 	ret2 += ts2->tv_nsec;
 
-	ret = ret2 - ret;
+	ret = ret2 -ret;	
 	return ret;
 }
 
@@ -94,7 +94,7 @@ int main(int argc, char* argv[])
 		printf("usage: rt_task period runtime deadline task_num\n");
 		exit(EXIT_FAILURE);
 	}
-	
+
 #ifdef USE_SCHED_CPU
 	prio = 0;					/* priority. */
 	//printf("---- period  :%d ms ----\n", atoi(argv[1]));
@@ -109,14 +109,14 @@ int main(int argc, char* argv[])
 	prio = getpid();
 	struct timespec ts1,ts2,ts3;
 
-	task_num = atoi(argv[4]);
+	task_num = atoi(argv[4]); 
 
 	int cpu;
 	cpu_set_t set;
 	cpu = sched_getcpu();
 	CPU_ZERO(&set);
 	CPU_SET(cpu,&set);
-	
+
 	gettime(&ts1);
 #if 0
 	for(j=0; j<task_num; j++)
@@ -148,19 +148,18 @@ int main(int argc, char* argv[])
 	while(1){
 	    pid = wait(&status);
 	    if(pid == -1){
-		if(ECHILD == errno){
-		    break;
-		}
-		else if (EINTR == errno)
-		{
-		    fprintf(stderr,"synchronize\n");
-		    continue;
-		}
-	    
+				if(ECHILD == errno){
+		   		break;
+				}
+				else if (EINTR == errno)
+				{
+		    	fprintf(stderr,"synchronize\n");
+		    	continue;
+				}
 	    err (EXIT_FAILURE, "wait error");
 	    }
-	    fprintf (stderr,"parenet: child = %d, status=%d\n", pid, status);
 
+	    fprintf (stderr,"parenet: child = %d, status=%d\n", pid, status);
 	}
 
 #endif

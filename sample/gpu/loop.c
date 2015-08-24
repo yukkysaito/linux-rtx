@@ -97,7 +97,6 @@ int cuda_test_madd(unsigned int n, char *path, int loop_count)
     
     struct timeval tv1, tv2, tv3;
     struct timespec ts1,ts2,ts3;
-
     /* block_x * block_y should not exceed 512. */
     block_x = n < 16 ? n : 16;
     block_y = n < 16 ? n : 16;
@@ -128,11 +127,10 @@ int cuda_test_madd(unsigned int n, char *path, int loop_count)
     }
 #ifndef DISABLE_SCHED_GPU
     handle = NULL;
-    if((res = rtx_gpu_open(&handle, 0))<0){
+    if((res = rtx_gpu_open(&handle, 0, 0)) < 0){
 	printf("rtx_gpu_open failed: res = %lu\n", (unsigned long)res);
     }
 #endif
-
 #ifndef DISABLE_SCHED_CPU
     rt_set_priority(loop_count);
     rt_set_scheduler(SCHED_FP); /* you can also set SCHED_EDF. */
@@ -140,9 +138,7 @@ int cuda_test_madd(unsigned int n, char *path, int loop_count)
     rt_run(timeout);
 #endif
     gettimeofday(&tv_init_end, NULL);
-
     for (loop = 0; loop<LOOP_COUNT; loop++){
-	
 	gettime(&ts1);
 	sprintf(fname, "%s/loop_gpu.cubin", path);
 	res = cuModuleLoad(&module, fname);
@@ -262,6 +258,7 @@ int cuda_test_madd(unsigned int n, char *path, int loop_count)
 	    return -1;
 	}
 	gettimeofday(&tv_exec_start, NULL);
+	//printf("kernel launch\n");
 #ifndef DISABLE_SCHED_GPU
 	rtx_gpu_launch(&handle);
 #endif
@@ -274,7 +271,7 @@ int cuda_test_madd(unsigned int n, char *path, int loop_count)
 	    printf("cuLaunchGrid failed: res = %lu\n", (unsigned long)res);
 	    return -1;
 	}
-
+//printf("kernel sync\n");
 #ifndef DISABLE_SCHED_GPU
 	rtx_gpu_notify(&handle);
 	rtx_gpu_sync(&handle);
@@ -284,7 +281,6 @@ int cuda_test_madd(unsigned int n, char *path, int loop_count)
 #ifndef MUTEX_OFF
 	pthread_mutex_unlock(&mutex);
 #endif
-
 	gettimeofday(&tv_exec_end, NULL);
 	gettimeofday(&tv_d2h_start, NULL);
 	/* download c[] */
@@ -387,7 +383,6 @@ int cuda_test_madd(unsigned int n, char *path, int loop_count)
     free(a);
     free(b);
     free(c);
-
     return 0;
 }
 
