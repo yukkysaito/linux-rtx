@@ -55,6 +55,15 @@ You can management gpu resource without kernel modification.
 		make -f Makefile.nvidia
 		./user_test 3000 3000 3000 10
 
+Note: you should modify Makefile.nvudia.
+
+		# select GPU architecture  
+		NV_ARCH = sm_(GPU architecture)
+
+you can check GPU architecture
+		cd sample/gpu/check_GPU
+		./check_GPU
+
 ##Benchmark Programs:
 ###Several benchmarking programs are available to assess performance.  
  
