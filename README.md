@@ -48,6 +48,23 @@ priority 50 and period 3000ms:
 The range of priority available for user applications is [4, 96].  
 Please see /usr/include/resch/api.h for definition.  
 
+###You can also run a sample program for gpu resource management.
+You can management gpu resource without kernel modification.
+
+		cd sample/gpu
+		make -f Makefile.nvidia
+		./user_test 3000 3000 3000 10
+
+Note: you should modify Makefile.nvudia.
+
+		# select GPU architecture  
+		NV_ARCH = sm_(GPU architecture)
+
+you can check GPU architecture
+
+		cd sample/gpu/check_GPU
+		./check_GPU
+
 ##Benchmark Programs:
 ###Several benchmarking programs are available to assess performance.  
  

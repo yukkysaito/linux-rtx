@@ -2,9 +2,9 @@
 TARGET	= user_test
 CC	= gcc
 CFLAGS +=-I/usr/local/gdev/include  -I../../include
-LIBS = -L/usr/local/gdev/lib64/ -L/usr/lib/resch -lucuda -lgdev -lresch_gpu -lresch
+LIBS = -L/usr/local/gdev/lib64/ -L/usr/lib/resch -lucuda -lgdev -lresch_gpu -lresch -pthread
 
-NV_ARCH = sm_30 
+NV_ARCH = 35 
 NVCC = nvcc -arch $(NV_ARCH) -cubin
 NV_SRC = loop
 
