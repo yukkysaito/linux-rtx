@@ -61,6 +61,7 @@ Note: you should modify Makefile.nvudia.
 		NV_ARCH = sm_(GPU architecture)
 
 you can check GPU architecture
+
 		cd sample/gpu/check_GPU
 		./check_GPU
 
