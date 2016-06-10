@@ -63,13 +63,13 @@ static ssize_t resch_write
 		printk(KERN_WARNING "RESCH: failed to copy data.\n");
 		return -EFAULT;
 	}
-	
+
 	switch (a.api) {
 		/* PORT I: preemptive periodic real-time scheduling.*/
 	case API_INIT:
 		res = api_init();
 		break;
-	
+
 	case API_EXIT:
 		res = api_exit(a.rid);
 		break;
@@ -180,23 +180,23 @@ static ssize_t resch_write
 		printk(KERN_WARNING "RESCH: illegal API identifier.\n");
 		break;
 	}
-	
+
 	return res;
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,8,0) /* we don't believe LINUX_VERSION_CODE */
 static int resch_ioctl(struct file *file,
-					   unsigned int cmd, 
+					   unsigned int cmd,
 					   unsigned long arg)
 #else
 static int resch_ioctl(struct inode *inode,
 					   struct file *file,
-					   unsigned int cmd, 
+					   unsigned int cmd,
 					   unsigned long arg)
 #endif
 {
 	unsigned long val;
-	switch(cmd){	
+	switch(cmd){
 	    case GDEV_IOCTL_CTX_CREATE:
 		return gsched_ctxcreate(arg);
 	    case GDEV_IOCTL_LAUNCH:
@@ -249,7 +249,7 @@ static int resch_ioctl(struct inode *inode,
 
 		    case TEST_GET_STIME:
 			return test_get_stime();
-		    
+
 		    case TEST_RESET_STIME:
 			return test_reset_stime();
 		    default:
@@ -295,8 +295,11 @@ static int __init resch_init(void)
 		printk(KERN_WARNING "RESCH: failed to register device.\n");
 		return ret;
 	}
-	
+
+#ifdef _RTXG_
+	printk(KERN_INFO "RESCH: enable GPU scheduling\n");
 	gsched_init();
+#endif /* RTXG */
 
 	sched_init();
 	component_init();
@@ -308,11 +311,13 @@ static void __exit resch_exit(void)
 {
 	printk(KERN_INFO "RESCH: GOODBYE!\n");
 
+#ifdef _RTXG_
 	gsched_exit();
+#endif /* RTXG */
 
 	sched_exit();
 	component_exit();
-	
+
 	/* delete the char device. */
 	cdev_del(&c_dev);
 	/* return back the device number. */
