@@ -1,6 +1,6 @@
 #ifndef __LIB_API_H__
 #define __LIB_API_H__
-
+#include <sys/time.h>
 
 
 /* supported scheduling policy. */
@@ -37,14 +37,14 @@ int rt_set_scheduler(unsigned long);
 int rt_background(void);
 
 /*******************************************************
- * PORT-II APIs for event-driven asynchrous scheduling. 
+ * PORT-II APIs for event-driven asynchrous scheduling.
  *******************************************************/
 int rt_sleep(struct timespec);
 int rt_suspend(void);
 int rt_wake_up(int);
 
 /**************************************************
- * PORT-III APIs for reservation-based scheduling. 
+ * PORT-III APIs for reservation-based scheduling.
  **************************************************/
 int rt_reserve_start(struct timespec, void (*)(void));
 int rt_reserve_stop(void);
